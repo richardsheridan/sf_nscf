@@ -84,7 +84,7 @@ _SCFcache_dict = OrderedDict()
 def SCFcache(chi,chi_s,pdi,sigma,segments,disp=False,cache=_SCFcache_dict):
     """Return a memoized SCF result by walking from a previous solution.
     
-    Using an OrderedDict (because I want to prune keys FIFO)
+    Using an OrderedDict because I want to prune keys FIFO
     """
     # prime the cache with a known easy solution
     if not cache: 
@@ -240,26 +240,13 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,segments=None,
             phi = fabs(e.x)
             if disp: print(e.value)
         # except ValueError as e:
-            # if hasattr(e,'message'):
-                # message=e.message
-            # elif hasattr(e,'args'):
-                # message=e.args[0]
-            # else:
-                # raise
-                
-            # if message == 'array must not contain infs or NaNs':
+            # if str(e) == 'array must not contain infs or NaNs':
                 # # TODO: Handle this error better. Caused by double overflows.
                 # raise #RuntimeError("solver couldn't converge")
             # else:
                 # raise
         except RuntimeError as e:
-            if hasattr(e,'message'):
-                message=e.message
-            elif hasattr(e,'args'):
-                message=e.args[0]
-            else:
-                raise
-            if message == 'gmres is not re-entrant':
+            if str(e) == 'gmres is not re-entrant':
                 # Threads are racing to use gmres. Lose the race and use
                 # something slower but thread-safe.
                 jac_solve_method = 'lgmres'
