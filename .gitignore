@@ -52,6 +52,11 @@ docs/_build/
 # PyBuilder
 target/
 
+# IDE
+.project
+.spyderproject
+.pydevproject
+
 # =========================
 # Operating System Files
 # =========================
