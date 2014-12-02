@@ -586,4 +586,4 @@ if __name__ == '__main__':
     SCFsolve_test()
     SCFcache_test()
     SCFprofile_test()
-    print('success!')
+    print('All tests pass!')

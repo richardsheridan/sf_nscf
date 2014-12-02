@@ -105,7 +105,7 @@ def SCFcache(chi,chi_s,pdi,sigma,segments,disp=False,cache=_SCFcache_dict):
     # Find the closest parameters in the cache: O(len(cache))
     
     # Numpy setup
-    cached_parameters = list(dict.__iter__(cache))
+    cached_parameters = tuple(dict.__iter__(cache))
     cp_array = np.array(cached_parameters)
     p_array = np.array(scaled_parameters)
     
@@ -478,35 +478,4 @@ def calc_g_zs(g_z,c_i,layers,segments):
         g_zs[:,0] = c_i[0,-1]*g_z
         _calc_g_zs(g_z,c_i,g_zs,LAMBDA_0,LAMBDA_1,layers,segments)
     
-    # Older versions of inner loops
-    
-#    if np.size(c_i)==1:
-#        c_i = np.zeros((1,round(segments)))
-#        g_zs[:,0] = 0.0
-#        g_zs[0,0] = g_z[0]
-#    else:
-#        # free chains
-#        g_zs[:,0] = c_i[0,segments-1]*g_z
-    
-    # FASTEST: call some custom C code identical to "SLOW" loop
-#    _calc_g_zs_pointers(g_z,c_i,g_zs,LAMBDA_0,LAMBDA_1,layers,segments)
-    
-    # FASTER: use the convolve function to partially vectorize  
-#    pg_zs=g_zs[:,0]    
-#    for r in range(1,segments):
-#        pg_zs=g_z*(c_i[0,segments-r-1]+raw_convolve(pg_zs,LAMBDA_ARRAY,1))
-#        g_zs[:,r]=pg_zs
-    
-    # SLOW: loop outright, pulling some slicing out of the innermost loop  
-#    for r in range(1,segments):
-#        c=c_i[0,segments-r-1]
-#        g_zs[0,r]=(pg_zs[0]*LAMBDA_0+pg_zs[1]*LAMBDA_1+c)*g_z[0]
-#        for z in range(1,(layers-1)):
-#            g_zs[z,r]=(pg_zs[z-1]*LAMBDA_1
-#                       + pg_zs[z]*LAMBDA_0
-#                       + pg_zs[z+1]*LAMBDA_1
-#                       + c) * g_z[z]
-#        g_zs[-1,r]=(pg_zs[-1]*LAMBDA_0+pg_zs[-2]*LAMBDA_1+c)*g_z[-1]
-#        pg_zs=g_zs[:,r]
-               
     return g_zs
