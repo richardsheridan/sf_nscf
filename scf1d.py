@@ -98,9 +98,8 @@ def SCFcache(chi,chi_s,pdi,sigma,segments,disp=False,cache=_SCFcache_dict):
     # longshot, but return a cached result if we hit it
     if scaled_parameters in cache:
         if disp: print('SCFcache hit at:', scaled_parameters)
-        phi = cache.pop(scaled_parameters) # pop and assign to shift the key
-        cache[scaled_parameters] = phi     # to the end as "recently used"
-        return phi
+        cache.move_to_end(scaled_parameters)
+        return cache[scaled_parameters]
     
     # Find the closest parameters in the cache: O(len(cache))
     
@@ -118,8 +117,8 @@ def SCFcache(chi,chi_s,pdi,sigma,segments,disp=False,cache=_SCFcache_dict):
     closest_cp_array = cp_array[closest_index]
     closest_delta = deltas[closest_index]
     
-    phi = cache.pop(closest_cp) # pop and assign to shift the key
-    cache[closest_cp] = phi     # to the end as "recently used"
+    cache.move_to_end(closest_cp)
+    phi = cache[closest_cp]
     
     if disp:
         print("Walking from nearest:", closest_cp_array)
@@ -164,13 +163,14 @@ def SCFcache(chi,chi_s,pdi,sigma,segments,disp=False,cache=_SCFcache_dict):
         try:
             phi = SCFsolve(p_tup[0], p_tup[1]/3, p_tup[2]+1, p_tup[3], 
                            p_tup[4]*500, disp, phi)
-            cache[p_tup] = phi
-            dstep *= 1.05
-            step += dstep
         except NoConvergence:
             flag = True # Reset this so we don't quit if step=1.0 fails
             dstep *= .5
             step -= dstep
+        else: # Belongs to try, executes if no exception is raised
+            cache[p_tup] = phi
+            dstep *= 1.05
+            step += dstep
     
     if disp: print('SCFcache execution time:', round(time()-starttime,3), "s")
     
@@ -257,12 +257,13 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,segments=None,
             if disp: 
                 print('Solver exit code:',result.status,result.message)
             
-            assert result.status in (1,2)
             if result.status == 1:
                 # success! carry on to resize logic.
                 phi = fabs(result.x)
-            else:
+            elif result.status == 2:
                 raise NoConvergence
+            else:
+                raise AssertionError # was: assert result.status in {1,2}
                 
         if disp: print('phi(M)/sum(phi) =', phi[-1] / theta * 1e6, '(ppm)')
         
@@ -297,9 +298,8 @@ def SZdist(pdi,nn,cache=_SZdist_dict):
     """
     args = pdi,nn
     if args in cache:
-        p_ni = cache.pop(args)
-        cache[args] = p_ni
-        return p_ni
+        cache.move_to_end(args)
+        return cache[args]
         
     uniform = False
     
@@ -368,11 +368,12 @@ class ShortCircuitRoot(Exception):
     def __str__(self):
          return repr(self.value)
          
-class NoConvergence(Exception):
-    """ Special exception to stop SCFsolve if root() is not converging
-    
-    """
-    pass
+#class NoConvergence(Exception):
+#    """ Special exception to stop SCFsolve if root() is not converging
+#    
+#    """
+#    pass
+from scipy.optimize.nonlin import NoConvergence
          
 def short_circuit_callback(x,tol):
     """ Special callback to stop root() before solution is found.

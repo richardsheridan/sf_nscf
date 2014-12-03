@@ -580,10 +580,13 @@ def SCFprofile_test():
     assert np.allclose(result, data, atol=1e-14)
     
 if __name__ == '__main__':
+    from time import time
+    start=time()
     calc_g_zs_test()
     SZdist_test()
     SCFeqns_test()
     SCFsolve_test()
     SCFcache_test()
     SCFprofile_test()
-    print('All tests pass!')
+    stop=time()
+    print('All tests passed in {:.3g} seconds!'.format(stop-start))
