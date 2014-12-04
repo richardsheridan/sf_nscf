@@ -22,22 +22,37 @@ Profile\ [#Cosgrove]_\ [#deVos]_\ [#Sheridan]_
     of "surface theta" conditions. [in prep]
 """
 
-from __future__ import division, print_function, unicode_literals
-
 import numpy as np
 from time import time
 from collections import OrderedDict
 from numpy import exp, log, sqrt, hstack, fabs
 from scipy.special import gammaln
-from calc_g_zs_cex import _calc_g_zs, _calc_g_zs_uniform
 
+# compatability for systems lacking compiler capability
+PYONLY = JIT = False
+try:
+    from numba import jit
+    JIT = True
+except ImportError:
+    try:
+        from calc_g_zs_cex import _calc_g_zs, _calc_g_zs_uniform
+    except ImportError:
+        from warnings import warn
+        warn('Compiled inner loop unavailable, using slow as molasses version!')
+        PYONLY = True
+
+# Micro-optimizations
+
+# faster version of numpy.convolve for ndarray only
 # This is okay to use as long as LAMBDA_ARRAY is symmetric,
 # otherwise a slice LAMBDA_ARRAY[::-1] is necessary
 from numpy.core.multiarray import correlate as raw_convolve
 
+# Faster version of numpy.sum for narray only
 from numpy.core import add
 addred = add.reduce
 
+# Precalculate some global constants
 LAMBDA_1 = np.float64(1.0)/6.0 #always assume cubic lattice (1/6) for now
 LAMBDA_0 = 1.0-2.0*LAMBDA_1
 LAMBDA_ARRAY = np.array([LAMBDA_1,LAMBDA_0,LAMBDA_1])
@@ -461,7 +476,7 @@ def calc_phi_z(g_ta,g_free,g_z):
 
 def calc_g_zs(g_z,c_i,layers,segments):
     # initialize
-    g_zs=np.empty((layers,segments),dtype=np.float64,order='F')
+    g_zs=np.empty((layers,segments),order='F')
     
     # choose special case
     if np.size(c_i) == 1:
@@ -473,10 +488,55 @@ def calc_g_zs(g_z,c_i,layers,segments):
             g_zs[:,0] = 0.0
             g_zs[0,0] = g_z[0]
         _calc_g_zs_uniform(g_z,g_zs,LAMBDA_0,LAMBDA_1,layers,segments)
-
     else:
         # free ends
         g_zs[:,0] = c_i[0,-1]*g_z
         _calc_g_zs(g_z,c_i,g_zs,LAMBDA_0,LAMBDA_1,layers,segments)
-    
+          
     return g_zs
+
+if PYONLY:
+    def _calc_g_zs(g_z,c_i,g_zs,LAMBDA_0,LAMBDA_1,layers,segments):
+        pg_zs = g_zs[:,0]    
+        for r in range(1,segments):
+            pg_zs = (raw_convolve(pg_zs,LAMBDA_ARRAY,1)
+                       + c_i[0,segments-r-1]) * g_z
+            g_zs[:,r] = pg_zs
+    def _calc_g_zs_uniform(g_z,g_zs,LAMBDA_0,LAMBDA_1,layers,segments):
+        pg_zs = g_zs[:,0]    
+        for r in range(1,segments):
+            pg_zs = raw_convolve(pg_zs,LAMBDA_ARRAY,1) * g_z
+            g_zs[:,r] = pg_zs
+if JIT:
+    @jit('void(f8[:],f8[:,:],f8[:,:],f8,f8,u2,u2)',
+         nopython=True,wraparound=False)#
+    def _calc_g_zs(g_z,c_i,g_zs,LAMBDA_0,LAMBDA_1,layers,segments):
+        for r in range(1,segments):
+            c = c_i[0,segments-r-1]
+            g_zs[0,r] = (g_zs[0,r-1]*LAMBDA_0
+                         + g_zs[1,r-1]*LAMBDA_1
+                         + c) * g_z[0]
+            for z in range(1,(layers-1)):
+                g_zs[z,r]=(g_zs[z-1,r-1]*LAMBDA_1
+                           + g_zs[z,r-1]*LAMBDA_0
+                           + g_zs[z+1,r-1]*LAMBDA_1
+                           + c) * g_z[z]
+            g_zs[layers-1,r]=(g_zs[layers-1,r-1]*LAMBDA_0
+                              + g_zs[layers-2,r-1]*LAMBDA_1
+                              + c) * g_z[layers-1]
+    
+    @jit('void(f8[:],f8[:,:],f8,f8,u2,u2)',
+         nopython=True,wraparound=False)#
+    def _calc_g_zs_uniform(g_z,g_zs,LAMBDA_0,LAMBDA_1,layers,segments):
+        for r in range(1,segments):
+            g_zs[0,r] = (g_zs[0,r-1]*LAMBDA_0
+                         + g_zs[1,r-1]*LAMBDA_1
+                         ) * g_z[0]
+            for z in range(1,(layers-1)):
+                g_zs[z,r]=(g_zs[z-1,r-1]*LAMBDA_1
+                           + g_zs[z,r-1]*LAMBDA_0
+                           + g_zs[z+1,r-1]*LAMBDA_1
+                           ) * g_z[z]
+            g_zs[layers-1,r]=(g_zs[layers-1,r-1]*LAMBDA_0
+                              + g_zs[layers-2,r-1]*LAMBDA_1
+                              ) * g_z[layers-1]
