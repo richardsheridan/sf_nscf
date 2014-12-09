@@ -579,7 +579,7 @@ def SCFprofile_test():
                         l_lat=1, mn=200, m_lat=1, pdi=1.5, disp=False)
     assert np.allclose(result, data, atol=1e-14)
     
-if __name__ == '__main__':
+def main():
     from time import time
     start=time()
     calc_g_zs_test()
@@ -590,3 +590,6 @@ if __name__ == '__main__':
     SCFprofile_test()
     stop=time()
     print('All tests passed in {:.3g} seconds!'.format(stop-start))
+
+if __name__ == '__main__':
+    main()

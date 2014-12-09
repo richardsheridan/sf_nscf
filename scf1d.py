@@ -479,7 +479,7 @@ def calc_g_zs(g_z,c_i,layers,segments):
     g_zs=np.empty((layers,segments),order='F')
     
     # choose special case
-    if np.size(c_i) == 1:
+    if np.size(c_i) == 1: # floats need np.size() rather than ndarray.size
         if c_i:
             # uniform chains
             g_zs[:,0] = c_i*g_z
@@ -508,7 +508,7 @@ if PYONLY:
             pg_zs = raw_convolve(pg_zs,LAMBDA_ARRAY,1) * g_z
             g_zs[:,r] = pg_zs
 if JIT:
-    @jit('void(f8[:],f8[:,:],f8[:,:],f8,f8,u2,u2)',
+    @jit('void(f8[:],f8[:,:],f8[:,:],f8,f8,i4,i4)',
          nopython=True,wraparound=False)#
     def _calc_g_zs(g_z,c_i,g_zs,LAMBDA_0,LAMBDA_1,layers,segments):
         for r in range(1,segments):
@@ -525,7 +525,7 @@ if JIT:
                               + g_zs[layers-2,r-1]*LAMBDA_1
                               + c) * g_z[layers-1]
     
-    @jit('void(f8[:],f8[:,:],f8,f8,u2,u2)',
+    @jit('void(f8[:],f8[:,:],f8,f8,i4,i4)',
          nopython=True,wraparound=False)#
     def _calc_g_zs_uniform(g_z,g_zs,LAMBDA_0,LAMBDA_1,layers,segments):
         for r in range(1,segments):
