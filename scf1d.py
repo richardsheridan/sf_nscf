@@ -48,7 +48,7 @@ except ImportError:
 # otherwise a slice LAMBDA_ARRAY[::-1] is necessary
 from numpy.core.multiarray import correlate as raw_convolve
 
-# Faster version of numpy.sum for narray only
+# Faster version of numpy.sum for ndarray only
 from numpy.core import add
 addred = add.reduce
 
@@ -450,11 +450,11 @@ def SCFeqns(phi_z,chi,chi_s,sigma,navgsegments,p_i):
     phi_z_new = calc_phi_z(g_zs_ta_norm,g_zs_free_ngts_norm,g_z_norm)
     
     # Handle float overflows only if they show themselves
-    if np.isnan(phi_z_new).any():
-        maxfloat=_getmax(g_zs_ta_norm.dtype.type)
-        g_zs_ta_norm[np.isinf(g_zs_ta_norm)]=maxfloat
-        g_zs_free_ngts_norm[np.isinf(g_zs_free_ngts_norm)]=maxfloat
-        phi_z_new = calc_phi_z(g_zs_ta_norm,g_zs_free_ngts_norm,g_z_norm)
+#    if np.isnan(phi_z_new).any():
+#        maxfloat=_getmax(g_zs_ta_norm.dtype.type)
+#        g_zs_ta_norm[np.isinf(g_zs_ta_norm)]=maxfloat
+#        g_zs_free_ngts_norm[np.isinf(g_zs_free_ngts_norm)]=maxfloat
+#        phi_z_new = calc_phi_z(g_zs_ta_norm,g_zs_free_ngts_norm,g_z_norm)
         
     eps_z = phi_z - phi_z_new
     return eps_z + penalty*np.sign(eps_z)
@@ -472,7 +472,10 @@ def calc_phi_z_avg(phi_z):
     return raw_convolve(phi_z,LAMBDA_ARRAY,1)
 
 def calc_phi_z(g_ta,g_free,g_z):
-    return addred(g_ta*np.fliplr(g_free),axis=1)/g_z
+    prod = g_ta*np.fliplr(g_free)
+    prod[np.isnan(prod)]=0
+#    prod=np.nan_to_num(prod)
+    return addred(prod,axis=1)/g_z
 
 def calc_g_zs(g_z,c_i,layers,segments):
     # initialize
@@ -499,14 +502,14 @@ if PYONLY:
     def _calc_g_zs(g_z,c_i,g_zs,LAMBDA_0,LAMBDA_1,layers,segments):
         pg_zs = g_zs[:,0]    
         for r in range(1,segments):
-            pg_zs = (raw_convolve(pg_zs,LAMBDA_ARRAY,1)
-                       + c_i[0,segments-r-1]) * g_z
-            g_zs[:,r] = pg_zs
+            g_zs[:,r] = pg_zs = (raw_convolve(pg_zs,LAMBDA_ARRAY,1)
+                                   + c_i[0,segments-r-1]) * g_z
+            
     def _calc_g_zs_uniform(g_z,g_zs,LAMBDA_0,LAMBDA_1,layers,segments):
         pg_zs = g_zs[:,0]    
         for r in range(1,segments):
-            pg_zs = raw_convolve(pg_zs,LAMBDA_ARRAY,1) * g_z
-            g_zs[:,r] = pg_zs
+            g_zs[:,r] = pg_zs = raw_convolve(pg_zs,LAMBDA_ARRAY,1) * g_z
+            
 if JIT:
     @jit('void(f8[:],f8[:,:],f8[:,:],f8,f8,i4,i4)',
          nopython=True,wraparound=False)#
