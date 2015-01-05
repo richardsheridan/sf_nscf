@@ -254,12 +254,6 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,segments=None,
             # dumping out to resize since we've exceeded resize tol by 4x
             phi = fabs(e.x)
             if disp: print(e.value)
-        # except ValueError as e:
-            # if str(e) == 'array must not contain infs or NaNs':
-                # # TODO: Handle this error better. Caused by double overflows.
-                # raise #RuntimeError("solver couldn't converge")
-            # else:
-                # raise
         except RuntimeError as e:
             if str(e) == 'gmres is not re-entrant':
                 # Threads are racing to use gmres. Lose the race and use
@@ -272,8 +266,8 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,segments=None,
             if disp: 
                 print('Solver exit code:',result.status,result.message)
             
-            if result.status == 1:
-                # success! carry on to resize logic.
+            if result.success:
+                # carry on to resize logic.
                 phi = fabs(result.x)
             elif result.status == 2:
                 raise NoConvergence
@@ -447,18 +441,12 @@ def SCFeqns(phi_z,chi,chi_s,sigma,navgsegments,p_i):
     g_zs_free_ngts_norm = calc_g_zs(g_z_norm,c_i_norm,layers,cutoff)
     
     # calculate new polymer density field
-    phi_z_new = calc_phi_z(g_zs_ta_norm,g_zs_free_ngts_norm,g_z_norm)
-    
-    # Handle float overflows only if they show themselves
-#    if np.isnan(phi_z_new).any():
-#        maxfloat=_getmax(g_zs_ta_norm.dtype.type)
-#        g_zs_ta_norm[np.isinf(g_zs_ta_norm)]=maxfloat
-#        g_zs_free_ngts_norm[np.isinf(g_zs_free_ngts_norm)]=maxfloat
-#        phi_z_new = calc_phi_z(g_zs_ta_norm,g_zs_free_ngts_norm,g_z_norm)
+    phi_z_new = calc_phi_z(g_zs_ta_norm,g_zs_free_ngts_norm,g_z_norm,layers,cutoff)
         
     eps_z = phi_z - phi_z_new
     return eps_z + penalty*np.sign(eps_z)
 
+'''
 def _getmax(t, seen_t={}):
     try:
         return seen_t[t]
@@ -467,11 +455,11 @@ def _getmax(t, seen_t={}):
         fmax = getlimits.finfo(t).max
         seen_t[t]=fmax
         return fmax
-
+'''
 def calc_phi_z_avg(phi_z):
     return raw_convolve(phi_z,LAMBDA_ARRAY,1)
 
-def calc_phi_z(g_ta,g_free,g_z):
+def calc_phi_z(g_ta,g_free,g_z,layers,segments):
     prod = g_ta*np.fliplr(g_free)
     prod[np.isnan(prod)]=0
 #    prod=np.nan_to_num(prod)
@@ -511,6 +499,21 @@ if PYONLY:
             g_zs[:,r] = pg_zs = raw_convolve(pg_zs,LAMBDA_ARRAY,1) * g_z
             
 if JIT:
+    
+    def calc_phi_z(g_ta,g_free,g_z,layers,segments):
+        output = np.zeros((layers))
+        _calc_phi_z(g_ta,g_free,output,layers,segments)
+        output /= g_z
+        return output
+    
+    @jit('void(f8[:,:],f8[:,:],f8[:],i4,i4)',
+         nopython=True,wraparound=False)#
+    def _calc_phi_z(g_ta,g_free,output,layers,segments):
+        for s in range(segments):
+            for z in range(layers):
+                if g_ta[z,s] and g_free[z,segments-s-1]: # Prevent NaNs
+                    output[z]+=g_ta[z,s]*g_free[z,segments-s-1]
+                    
     @jit('void(f8[:],f8[:,:],f8[:,:],f8,f8,i4,i4)',
          nopython=True,wraparound=False)#
     def _calc_g_zs(g_z,c_i,g_zs,LAMBDA_0,LAMBDA_1,layers,segments):
