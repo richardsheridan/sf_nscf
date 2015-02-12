@@ -46,7 +46,7 @@ except ImportError:
 # faster version of numpy.convolve for ndarray only
 # This is okay to use as long as LAMBDA_ARRAY is symmetric,
 # otherwise a slice LAMBDA_ARRAY[::-1] is necessary
-from numpy.core.multiarray import correlate as raw_convolve
+from numpy.core.multiarray import correlate
 
 # Faster version of numpy.sum for ndarray only
 from numpy.core import add
@@ -446,18 +446,8 @@ def SCFeqns(phi_z,chi,chi_s,sigma,navgsegments,p_i):
     eps_z = phi_z - phi_z_new
     return eps_z + penalty*np.sign(eps_z)
 
-'''
-def _getmax(t, seen_t={}):
-    try:
-        return seen_t[t]
-    except KeyError:
-        from numpy.core import getlimits
-        fmax = getlimits.finfo(t).max
-        seen_t[t]=fmax
-        return fmax
-'''
 def calc_phi_z_avg(phi_z):
-    return raw_convolve(phi_z,LAMBDA_ARRAY,1)
+    return correlate(phi_z,LAMBDA_ARRAY,1)
 
 def calc_phi_z(g_ta,g_free,g_z,layers,segments):
     prod = g_ta*np.fliplr(g_free)
@@ -488,15 +478,16 @@ def calc_g_zs(g_z,c_i,layers,segments):
 
 if PYONLY:
     def _calc_g_zs(g_z,c_i,g_zs,LAMBDA_0,LAMBDA_1,layers,segments):
-        pg_zs = g_zs[:,0]    
-        for r in range(1,segments):
-            g_zs[:,r] = pg_zs = (raw_convolve(pg_zs,LAMBDA_ARRAY,1)
-                                   + c_i[0,segments-r-1]) * g_z
+        pg_zs = g_zs[:,0] 
+        segment_iterator = enumerate(c_i[0,::-1])
+        next(segment_iterator)
+        for r,c in segment_iterator:
+            g_zs[:,r] = pg_zs = (correlate(pg_zs,LAMBDA_ARRAY,1) + c) * g_z
             
     def _calc_g_zs_uniform(g_z,g_zs,LAMBDA_0,LAMBDA_1,layers,segments):
         pg_zs = g_zs[:,0]    
         for r in range(1,segments):
-            g_zs[:,r] = pg_zs = raw_convolve(pg_zs,LAMBDA_ARRAY,1) * g_z
+            g_zs[:,r] = pg_zs = correlate(pg_zs,LAMBDA_ARRAY,1) * g_z
             
 if JIT:
     

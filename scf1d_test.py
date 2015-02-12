@@ -387,9 +387,10 @@ def SCFsolve_test():
     chi_s = .5
     try:
         SCFsolve(chi,chi_s,pdi,sigma,navgsegments)
-        assert False, 'should not arrive here'
     except NoConvergence:
         pass
+    else: # Belongs to try, executes if no exception is raised
+        assert False, 'should not arrive here'
     
     phi0 = np.array((
          7.68622748e-01,   7.38403430e-01,   7.24406743e-01,
