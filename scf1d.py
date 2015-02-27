@@ -31,7 +31,7 @@ from scipy.special import gammaln
 # compatability for systems lacking compiler capability
 PYONLY = JIT = False
 try:
-    from numba import jit
+    from numba import njit
     JIT = True
 except ImportError:
     try:
@@ -57,7 +57,6 @@ LAMBDA_1 = np.float64(1.0)/6.0 #always assume cubic lattice (1/6) for now
 LAMBDA_0 = 1.0-2.0*LAMBDA_1
 LAMBDA_ARRAY = np.array([LAMBDA_1,LAMBDA_0,LAMBDA_1])
 MINLAT = 25
-
 
 def SCFprofile(z, chi=None, chi_s=None, h_dry=None, l_lat=1, mn=None, 
                m_lat=1, pdi=1, disp=False):
@@ -483,12 +482,12 @@ if PYONLY:
         next(segment_iterator)
         for r,c in segment_iterator:
             g_zs[:,r] = pg_zs = (correlate(pg_zs,LAMBDA_ARRAY,1) + c) * g_z
-            
+
     def _calc_g_zs_uniform(g_z,g_zs,LAMBDA_0,LAMBDA_1,layers,segments):
         pg_zs = g_zs[:,0]    
         for r in range(1,segments):
             g_zs[:,r] = pg_zs = correlate(pg_zs,LAMBDA_ARRAY,1) * g_z
-            
+
 if JIT:
     
     def calc_phi_z(g_ta,g_free,g_z,layers,segments):
@@ -496,17 +495,15 @@ if JIT:
         _calc_phi_z(g_ta,g_free,output,layers,segments)
         output /= g_z
         return output
-    
-    @jit('void(f8[:,:],f8[:,:],f8[:],i4,i4)',
-         nopython=True,wraparound=False)#
+
+    @njit('void(f8[:,:],f8[:,:],f8[:],i4,i4)')
     def _calc_phi_z(g_ta,g_free,output,layers,segments):
         for s in range(segments):
             for z in range(layers):
                 if g_ta[z,s] and g_free[z,segments-s-1]: # Prevent NaNs
                     output[z]+=g_ta[z,s]*g_free[z,segments-s-1]
-                    
-    @jit('void(f8[:],f8[:,:],f8[:,:],f8,f8,i4,i4)',
-         nopython=True,wraparound=False)#
+
+    @njit('void(f8[:],f8[:,:],f8[:,:],f8,f8,i4,i4)')
     def _calc_g_zs(g_z,c_i,g_zs,LAMBDA_0,LAMBDA_1,layers,segments):
         for r in range(1,segments):
             c = c_i[0,segments-r-1]
@@ -521,9 +518,8 @@ if JIT:
             g_zs[layers-1,r]=(g_zs[layers-1,r-1]*LAMBDA_0
                               + g_zs[layers-2,r-1]*LAMBDA_1
                               + c) * g_z[layers-1]
-    
-    @jit('void(f8[:],f8[:,:],f8,f8,i4,i4)',
-         nopython=True,wraparound=False)#
+
+    @njit('void(f8[:],f8[:,:],f8,f8,i4,i4)')
     def _calc_g_zs_uniform(g_z,g_zs,LAMBDA_0,LAMBDA_1,layers,segments):
         for r in range(1,segments):
             g_zs[0,r] = (g_zs[0,r-1]*LAMBDA_0

@@ -37,7 +37,7 @@ calc_g_zs_module = Extension(mod_name,
                      
 dist = setup(
         name = 'SCF1d',
-        version = 0.01,
+        version = 0.1,
         author='Richard Sheridan',
         author_email='richard.sheridan@nist.gov',
         description='1-D end tethered polymer modeling',
