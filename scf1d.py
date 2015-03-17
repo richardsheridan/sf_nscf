@@ -225,7 +225,9 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,segments=None,
         layers = len(phi0)
         if disp: print("Initial guess passed: layers =", layers)
     
-    # Loop resizing variables
+    # resizing loop variables
+    jac_solve_method = 'gmres'    
+    lattice_too_small = True
     
     # We tolerate up to 2ppm of our polymer in the last layer,
     theta = sigma*segments
@@ -237,10 +239,7 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,segments=None,
     def callback(x,fx): 
         short_circuit_callback(x,tol)
     
-    # other loop variables        
-    jac_solve_method = 'gmres'
-    
-    while True:
+    while lattice_too_small:
         if disp: print("Solving SCF equations")
         
         try:
@@ -275,14 +274,12 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,segments=None,
                 
         if disp: print('phi(M)/sum(phi) =', phi[-1] / theta * 1e6, '(ppm)')
         
-        if phi[-1] > tol:
+        lattice_too_small = phi[-1] > tol
+        if lattice_too_small:
             # if the last layer is beyond tolerance, grow the lattice
             newlayers = max(1,round(len(phi0)*ratio))
             if disp: print('Growing undersized lattice by', newlayers)
             phi0 = hstack((phi,np.linspace(phi[-1],0,num=newlayers)))
-        else:
-            # otherwise, we are done for real
-            break
     
     # chop off extra layers
     chop = addred(phi>tol)+1
