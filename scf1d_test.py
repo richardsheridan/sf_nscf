@@ -61,16 +61,16 @@ def calc_g_zs_test():
          0.89922403,  0.90148479,  0.9088376 ,  0.91999378,  0.93407904,
          0.95048074,  0.96875736,  0.98858277,  1.00971099,  1.03195321,
          1.05516234,  1.07922242,  1.10404129,  1.1295452 ,  1.15567502)))
-    
+
     # free chains
     c_i = np.zeros((1,segments))
     c_i[0,-1]= 1.0
     assert np.allclose(calc_g_zs(g_z,c_i,layers,segments), data, atol=1e-14)
-    
+
     # uniform chains
     c_i = 1.0
     assert np.allclose(calc_g_zs(g_z,c_i,layers,segments), data, atol=1e-14)
-    
+
     # end-tethered chains
     c_i = 0
     data = np.array((
@@ -145,10 +145,10 @@ def calc_g_zs_test():
           4.97630787e-05,   8.04351502e-05,   1.21938004e-04,
           1.75467518e-04,   2.41852179e-04)))
     assert np.allclose(calc_g_zs(g_z,c_i,layers,segments), data, atol=1e-14)
-    
+
 
 def SZdist_test():
-    
+
     # uniform
     pdi=1
     nn=100
@@ -162,15 +162,15 @@ def SZdist_test():
          0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,
          0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  1.)))
     assert np.allclose(SZdist(pdi,nn), data, atol=1e-14)
-    
+
     # too narrow
     pdi=1.0000000001
     nn=100
     assert np.allclose(SZdist(pdi,nn), data, atol=1e-14)
-         
+
     # broad
     pdi=2
-    nn=30 
+    nn=30
     data = np.array(((
           3.22405367e-02,   3.11835662e-02,   3.01612473e-02,
           2.91724440e-02,   2.82160575e-02,   2.72910251e-02,
@@ -277,8 +277,8 @@ def SZdist_test():
           1.19839102e-06,   1.15910309e-06,   1.12110317e-06,
           1.08434904e-06,   1.04879985e-06,   1.01441610e-06)))
     assert np.allclose(SZdist(pdi,nn), data, atol=1e-14)
-    
-    
+
+
 easy_phi_z = np.array((
          3.65550149e-01,   3.97525443e-01,   3.95172152e-01,
          3.88749959e-01,   3.80779368e-01,   3.72122812e-01,
@@ -303,10 +303,10 @@ easy_phi_z = np.array((
          3.34762317e-04,   2.25084794e-04,   1.49905568e-04,
          9.89146455e-05,   6.46641149e-05,   4.18644798e-05,
          2.68144592e-05,   1.69574361e-05))
-         
-         
+
+
 def SCFeqns_test():
-    
+
     # away from solution
     phi_z = np.linspace(.5,0,50)
     chi = 0.1
@@ -328,7 +328,7 @@ def SCFeqns_test():
        -0.036859  , -0.03906598, -0.03438694, -0.02291   , -0.01063772))
     result = SCFeqns(phi_z,chi,chi_s,sigma,navgsegments,p_i)
     assert np.allclose(result, data, atol=1e-14)
-    
+
     # at solution
     phi_z = easy_phi_z.copy()
     data = np.array((
@@ -357,7 +357,7 @@ def SCFeqns_test():
          1.31522431e-05,   1.31565523e-05))
     result = SCFeqns(phi_z,chi,chi_s,sigma,navgsegments,p_i)
     assert np.allclose(result, data, atol=1e-14)
-    
+
     # check that penalty penalizes
     phi_z[0]=.999
     result = SCFeqns(phi_z,chi,chi_s,sigma,navgsegments,p_i)
@@ -366,12 +366,12 @@ def SCFeqns_test():
     result = SCFeqns(phi_z,chi,chi_s,sigma,navgsegments,p_i)
     above = np.linalg.norm(result,np.inf)
     assert above > (below + 1e5*(phi_z[0]-.99999))
-    
+
     #TODO: check float overflow handling
-    
-    
+
+
 def SCFsolve_test():
-    
+
     #find the solution used in the previous test without an initial guess
     chi = 0.1
     chi_s = 0.05
@@ -381,7 +381,7 @@ def SCFsolve_test():
     data = easy_phi_z.copy()
     result = SCFsolve(chi,chi_s,pdi,sigma,navgsegments)
     assert np.allclose(result, data, atol=1e-14)
-    
+
     # try a very hard one using the answer as an initial guess
     chi = 1
     chi_s = .5
@@ -391,7 +391,7 @@ def SCFsolve_test():
         pass
     else: # Belongs to try, executes if no exception is raised
         assert False, 'should not arrive here'
-    
+
     phi0 = np.array((
          7.68622748e-01,   7.38403430e-01,   7.24406743e-01,
          7.18854113e-01,   7.13805025e-01,   7.08721605e-01,
@@ -414,10 +414,10 @@ def SCFsolve_test():
          9.20866301e-08))
     result = SCFsolve(chi,chi_s,pdi,sigma,navgsegments,False,phi0)
     assert np.allclose(result, data, atol=1e-14)
-    
-         
+
+
 def SCFcache_test():
-    
+
     # check that the hard solution can be found by walking
     chi = 1
     chi_s = 0.5
@@ -438,10 +438,10 @@ def SCFcache_test():
          1.47353950e-07))
     result = SCFcache(chi,chi_s,pdi,sigma,navgsegments,False,cache)
     assert np.allclose(result, data, atol=1e-14)
-    
+
     # check that the cache is holding items
     assert cache
-    
+
     # check that cache is reordered on hits and misses
     cache_keys = list(cache)
     oldest_key = cache_keys[0]
@@ -450,7 +450,7 @@ def SCFcache_test():
     assert oldest_key == list(cache)[-1]
     SCFcache(chi,chi_s,pdi+.1,sigma,navgsegments,False,cache)
     assert newest_key == list(cache)[-2]
-    
+
 
 long_profile = np.array((
          4.99184756e-01,   4.87940275e-01,   4.76695793e-01,
@@ -570,16 +570,17 @@ long_profile = np.array((
          0.00000000e+00,   0.00000000e+00,   0.00000000e+00,
          0.00000000e+00,   0.00000000e+00,   0.00000000e+00,
          0.00000000e+00,   0.00000000e+00))
-         
-         
+
+
 def SCFprofile_test():
-    
+
     # basically checking that numpy interp hasn't changed
     data = long_profile.copy()
     result = SCFprofile(np.linspace(0,100,350), chi=.5, chi_s=.3, h_dry=15,
                         l_lat=1, mn=200, m_lat=1, pdi=1.5, disp=False)
     assert np.allclose(result, data, atol=1e-14)
-    
+
+
 def main():
     from time import time
     start=time()
@@ -591,6 +592,7 @@ def main():
     SCFprofile_test()
     stop=time()
     print('All tests passed in {:.3g} seconds!'.format(stop-start))
+
 
 if __name__ == '__main__':
     main()
