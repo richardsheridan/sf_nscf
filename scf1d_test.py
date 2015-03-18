@@ -594,5 +594,16 @@ def main():
     print('All tests passed in {:.3g} seconds!'.format(stop-start))
 
 
+def benchmark():
+    from time import time
+    from collections import OrderedDict
+    start=time()
+    cache=OrderedDict()
+    SCFcache(0,0,1,.1,160.52,0,cache)
+    SCFcache(0,0,1.75,.1,360.52,0,cache)
+    print('Benchmark time:', time()-start, 'seconds.')
+
+
 if __name__ == '__main__':
     main()
+    benchmark()
