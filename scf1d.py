@@ -293,6 +293,7 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,segments=None,
 
     return phi
 
+
 _SZdist_dict = OrderedDict()
 def SZdist(pdi,nn,cache=_SZdist_dict):
     """ Calculate Shultz-Zimm distribution from PDI and number average DP
@@ -411,19 +412,14 @@ def SCFeqns(phi_z,chi,chi_s,sigma,navgsegments,p_i,dump_u = False):
     layers = phi_z.size
     cutoff = p_i.size
 
-    # calculate all needed quantities for new g_z
-    delta = np.zeros(layers)
-    delta[0] = 1.0
-    phi_z_avg = calc_phi_z_avg(phi_z)
-
     # calculate new g_z (Boltzmann weighting factors)
-    g_z = (1.0 - phi_z)*exp(2*chi*phi_z_avg + delta*chi_s)
+    g_z = calc_g_z(phi_z, chi, chi_s)
 
-    # normalize g_z for numerical stability
     u = -log(g_z)
     if dump_u:
         return u
 
+    # normalize g_z for numerical stability
     uavg = addred(u)/layers
     g_z_norm = g_z*exp(uavg)
 
@@ -443,7 +439,9 @@ def SCFeqns(phi_z,chi,chi_s,sigma,navgsegments,p_i,dump_u = False):
     phi_z_new = calc_phi_z(g_zs_ta_norm,g_zs_free_ngts_norm,g_z_norm,layers,cutoff)
 
     eps_z = phi_z - phi_z_new
-    return eps_z + penalty*np.sign(eps_z)
+    eps_z += penalty*np.sign(eps_z)
+
+    return eps_z
 
 
 def SCFeqns_u(u_z,chi,chi_s,sigma,navgsegments,p_i,dump_phi = False):
@@ -486,17 +484,26 @@ def SCFeqns_u(u_z,chi,chi_s,sigma,navgsegments,p_i,dump_phi = False):
     else:
         penalty = 0.0
 
-    # calculate all needed quantities for new g_z
+    # calculate new g_z (Boltzmann weighting factors)
+    g_z = calc_g_z(phi_z, chi, chi_s)
+    u_z_new = -log(g_z)
+
+    eps_z = u_z - u_z_new
+    eps_z += penalty*np.sign(eps_z)
+
+    return eps_z
+
+def calc_g_z(phi_z, chi, chi_s):
+
+    layers = phi_z.size
     delta = np.zeros(layers)
     delta[0] = 1.0
     phi_z_avg = calc_phi_z_avg(phi_z)
 
     # calculate new g_z (Boltzmann weighting factors)
     g_z = (1.0 - phi_z)*exp(2*chi*phi_z_avg + delta*chi_s)
-    u_z_new = -log(g_z)
 
-    eps_z = u_z - u_z_new
-    return eps_z + penalty*np.sign(eps_z)
+    return g_z
 
 
 def calc_phi_z_avg(phi_z):
