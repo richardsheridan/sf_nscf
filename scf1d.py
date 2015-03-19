@@ -391,7 +391,7 @@ def short_circuit_callback(x,tol):
     if abs(x[-1]) > 4*tol:
         raise ShortCircuitRoot('Stopping, lattice too small!',x)
 
-def SCFeqns(phi_z,chi,chi_s,sigma,navgsegments,p_i):
+def SCFeqns(phi_z,chi,chi_s,sigma,navgsegments,p_i,dump_u = False):
     """ System of SCF equation for terminally attached polymers.
 
         Formatted for input to a nonlinear minimizer or solver.
@@ -421,6 +421,9 @@ def SCFeqns(phi_z,chi,chi_s,sigma,navgsegments,p_i):
 
     # normalize g_z for numerical stability
     u = -log(g_z)
+    if dump_u:
+        return u
+
     uavg = addred(u)/layers
     g_z_norm = g_z*exp(uavg)
 
@@ -441,6 +444,60 @@ def SCFeqns(phi_z,chi,chi_s,sigma,navgsegments,p_i):
 
     eps_z = phi_z - phi_z_new
     return eps_z + penalty*np.sign(eps_z)
+
+
+def SCFeqns_u(u_z,chi,chi_s,sigma,navgsegments,p_i,dump_phi = False):
+    """ System of SCF equations for terminally attached polymers.
+
+        Formatted for input to a nonlinear minimizer or solver. Focuses on
+        the potential field rather than the density field.
+    """
+
+    layers = u_z.size
+    cutoff = p_i.size
+
+    # Normalize u_z for numerical stability
+
+    u_z_avg = addred(u_z)/layers
+    g_z_norm = exp(u_z_avg-u_z)
+
+    # calculate weighting factors for terminally attached chains
+    g_zs_ta_norm = calc_g_zs(g_z_norm,0,layers,cutoff)
+
+    # calculate normalization constants from 1/(single chain partition fn)
+    if cutoff == round(navgsegments): # if uniform,
+        c_i_norm = sigma/addred(g_zs_ta_norm[:,-1]) # take a shortcut!
+    else:
+        c_i_norm = sigma*p_i/addred(g_zs_ta_norm,axis=0)
+
+    # calculate weighting factors for free chains
+    g_zs_free_ngts_norm = calc_g_zs(g_z_norm,c_i_norm,layers,cutoff)
+
+    # calculate new polymer density field
+    phi_z = calc_phi_z(g_zs_ta_norm,g_zs_free_ngts_norm,g_z_norm,layers,cutoff)
+    if dump_phi:
+        return phi_z
+
+    # attempts to try fields with values greater than one are penalized
+    toomuch = phi_z>.99999
+    if toomuch.any():
+        penalty = np.where(toomuch,1e5*(phi_z-.99999),0)
+        phi_z[toomuch] = .99999
+    else:
+        penalty = 0.0
+
+    # calculate all needed quantities for new g_z
+    delta = np.zeros(layers)
+    delta[0] = 1.0
+    phi_z_avg = calc_phi_z_avg(phi_z)
+
+    # calculate new g_z (Boltzmann weighting factors)
+    g_z = (1.0 - phi_z)*exp(2*chi*phi_z_avg + delta*chi_s)
+    u_z_new = -log(g_z)
+
+    eps_z = u_z - u_z_new
+    return eps_z + penalty*np.sign(eps_z)
+
 
 def calc_phi_z_avg(phi_z):
     return correlate(phi_z,LAMBDA_ARRAY,1)
