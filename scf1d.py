@@ -294,6 +294,103 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,segments=None,
     return phi
 
 
+def SCFsolve_u(chi=0,chi_s=0,pdi=1,sigma=None,segments=None,
+             disp=False,u_z0=None,maxiter=15):
+    """ Solve SCF equations using an initial guess and lattice parameters
+
+        This function finds a solution in terms of the potential field.
+    """
+
+    from scipy.optimize import root
+
+    if sigma >= 1:
+        raise ValueError('Chains that short cannot be squeezed that high')
+
+    if disp: starttime = time()
+
+    p_i = SZdist(pdi,segments)
+
+    if u_z0 is None:
+        layers, u_z0 = default_guess(segments,sigma)
+        if disp: print('No guess passed, using default phi0: layers =',layers)
+    else:
+        layers = len(u_z0)
+        if disp: print("Initial guess passed: layers =", layers)
+
+    # resizing loop variables
+    jac_solve_method = 'gmres'
+    lattice_too_small = True
+
+    # We tolerate up to 2ppm of our polymer in the last layer,
+    theta = sigma*segments
+    tol = 2e-6*theta
+    # otherwise we grow it by 20%.
+    ratio = .2
+
+    # callback to detect an undersized lattice early
+    def callback(x,fx):
+        short_circuit_callback(x,tol)
+
+    while lattice_too_small:
+        if disp: print("Solving SCF equations")
+
+        try:
+            result = root(
+                SCFeqns_u,u_z0,args=(chi,chi_s,sigma,segments,p_i),
+                method='Krylov',callback=None,
+                options={'disp':bool(disp),'maxiter':maxiter,
+                         'jac_options':{'method':jac_solve_method}})
+        except ShortCircuitRoot as e:
+            # dumping out to resize since we've exceeded resize tol by 4x
+            u_z = fabs(e.x)
+            if disp: print(e.value)
+        except RuntimeError as e:
+            if str(e) == 'gmres is not re-entrant':
+                # Threads are racing to use gmres. Lose the race and use
+                # something slower but thread-safe.
+                jac_solve_method = 'lgmres'
+                continue
+            else:
+                raise
+        else: # Belongs to try, executes if no exception is raised
+            if disp:
+                print('Solver exit code:',result.status,result.message)
+
+            if result.success:
+                # carry on to resize logic.
+                u_z = fabs(result.x)
+            elif result.status == 2:
+                raise NoConvergence
+            else:
+                raise AssertionError # was: assert result.status in {1,2}
+
+        phi = SCFeqns_u(u_z,chi,chi_s,sigma,segments,p_i,dump_phi = True)
+
+        if disp: print('phi(M)/sum(phi) =', phi[-1] / theta * 1e6, '(ppm)')
+
+        # we'll revisit resizing logic later, maybe it can be framed in terms
+        # of the potential
+        lattice_too_small = phi[-1] > tol
+
+        if lattice_too_small:
+            # if the last layer is beyond tolerance, grow the lattice
+            newlayers = max(1,round(len(u_z)*ratio))
+            if disp: print('Growing undersized lattice by', newlayers)
+            u_z = hstack((u_z,np.linspace(u_z[-1],0,num=newlayers)))
+
+    # chop off extra layers
+    chop = addred(phi>tol)+1
+    u_z = u_z[:max(MINLAT,chop)]
+
+    if disp:
+        print('After chopping: phi(M)/sum(phi) =',
+              phi[:max(MINLAT,chop)][-1] / theta * 1e6, '(ppm)')
+        print("lattice size:", len(u_z))
+        print("SCFsolve execution time:", round(time()-starttime,3), "s")
+
+    return u_z
+
+
 _SZdist_dict = OrderedDict()
 def SZdist(pdi,nn,cache=_SZdist_dict):
     """ Calculate Shultz-Zimm distribution from PDI and number average DP
