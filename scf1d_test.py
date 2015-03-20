@@ -72,7 +72,7 @@ def calc_g_zs_test():
     assert np.allclose(calc_g_zs(g_z,c_i,layers,segments), data, atol=1e-14)
 
     # end-tethered chains
-    c_i = 0
+    c_i = -1
     data = np.array((
        (  9.00000000e-01,   5.40000000e-01,   3.44750000e-01,
           2.32057407e-01,   1.63182762e-01,   1.18909613e-01,
@@ -145,6 +145,8 @@ def calc_g_zs_test():
           4.97630787e-05,   8.04351502e-05,   1.21938004e-04,
           1.75467518e-04,   2.41852179e-04)))
     assert np.allclose(calc_g_zs(g_z,c_i,layers,segments), data, atol=1e-14)
+
+    # TODO: Test free chains c_i = 0
 
 
 def SZdist_test():
@@ -442,17 +444,18 @@ def SCFsolve_test():
     chi = 0.1
     chi_s = 0.05
     sigma = .1
+    phi_b = 0
     navgsegments = 95.5
     pdi = 1.2
     data = easy_phi_z.copy()
-    result = SCFsolve(chi,chi_s,pdi,sigma,navgsegments)
+    result = SCFsolve(chi,chi_s,pdi,sigma,phi_b,navgsegments)
     assert np.allclose(result, data, atol=1e-14)
 
     # try a very hard one using the answer as an initial guess
     chi = 1
     chi_s = .5
     try:
-        SCFsolve(chi,chi_s,pdi,sigma,navgsegments)
+        SCFsolve(chi,chi_s,pdi,sigma,phi_b,navgsegments)
     except NoConvergence:
         pass
     else: # Belongs to try, executes if no exception is raised
@@ -478,7 +481,7 @@ def SCFsolve_test():
          1.74049587e-04,   5.19035276e-05,   1.59206139e-05,
          4.90143989e-06,   1.48825262e-06,   4.26488751e-07,
          9.20866301e-08))
-    result = SCFsolve(chi,chi_s,pdi,sigma,navgsegments,False,phi0)
+    result = SCFsolve(chi,chi_s,pdi,sigma,phi_b,navgsegments,phi0=phi0)
     assert np.allclose(result, data, atol=1e-14)
 
 
@@ -488,6 +491,7 @@ def SCFcache_test():
     chi = 1
     chi_s = 0.5
     sigma = .1
+    phi_b  = 0
     navgsegments = 95.5
     pdi = 1.2
     from collections import OrderedDict
@@ -502,7 +506,8 @@ def SCFcache_test():
          1.74095080e-04,   5.19490850e-05,   1.59662700e-05,
          4.94738039e-06,   1.53508370e-06,   4.75950448e-07,
          1.47353950e-07))
-    result = SCFcache(chi,chi_s,pdi,sigma,navgsegments,False,cache)
+    result = SCFcache(chi,chi_s,pdi,sigma,phi_b,navgsegments,False,cache)
+    print(result,data)
     assert np.allclose(result, data, atol=1e-14)
 
     # check that the cache is holding items
@@ -512,9 +517,9 @@ def SCFcache_test():
     cache_keys = list(cache)
     oldest_key = cache_keys[0]
     newest_key = cache_keys[-1]
-    SCFcache(0,0,1,.1,100,False,cache)
+    SCFcache(0,0,1,.1,0,100,False,cache)
     assert oldest_key == list(cache)[-1]
-    SCFcache(chi,chi_s,pdi+.1,sigma,navgsegments,False,cache)
+    SCFcache(chi,chi_s,pdi+.1,sigma,phi_b,navgsegments,False,cache)
     assert newest_key == list(cache)[-2]
 
 

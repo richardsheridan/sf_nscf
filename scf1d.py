@@ -57,6 +57,7 @@ LAMBDA_1 = np.float64(1.0)/6.0 #always assume cubic lattice (1/6) for now
 LAMBDA_0 = 1.0-2.0*LAMBDA_1
 LAMBDA_ARRAY = np.array([LAMBDA_1,LAMBDA_0,LAMBDA_1])
 MINLAT = 25
+MINBULK = 5
 
 def SCFprofile(z, chi=None, chi_s=None, h_dry=None, l_lat=1, mn=None,
                m_lat=1, pdi=1, disp=False):
@@ -95,19 +96,19 @@ def SCFprofile(z, chi=None, chi_s=None, h_dry=None, l_lat=1, mn=None,
     return phi
 
 _SCFcache_dict = OrderedDict()
-def SCFcache(chi,chi_s,pdi,sigma,segments,disp=False,cache=_SCFcache_dict):
+def SCFcache(chi,chi_s,pdi,sigma,phi_b,segments,disp=False,cache=_SCFcache_dict):
     """Return a memoized SCF result by walking from a previous solution.
 
     Using an OrderedDict because I want to prune keys FIFO
     """
     # prime the cache with a known easy solution
     if not cache:
-        cache[(0,0,0,.1,.2)] = SCFsolve(sigma=.1,segments=100,disp=disp)
+        cache[(0,0,0,.1,0,.2)] = SCFsolve(sigma=.1,segments=100,disp=disp)
 
     if disp: starttime = time()
 
     # Try to keep the parameters between 0 and 1. Factors are arbitrary.
-    scaled_parameters = (chi,chi_s*3,pdi-1,sigma,segments/500)
+    scaled_parameters = (chi,chi_s*3,pdi-1,sigma,phi_b,segments/500)
 
     # longshot, but return a cached result if we hit it
     if scaled_parameters in cache:
@@ -175,8 +176,8 @@ def SCFcache(chi,chi_s,pdi,sigma,segments,disp=False,cache=_SCFcache_dict):
             print('current parameters:', p_tup)
 
         try:
-            phi = SCFsolve(p_tup[0], p_tup[1]/3, p_tup[2]+1, p_tup[3],
-                           p_tup[4]*500, disp, phi)
+            phi = SCFsolve(p_tup[0], p_tup[1]/3, p_tup[2]+1, p_tup[3], p_tup[4],
+                           p_tup[5]*500, disp=disp, phi0=phi)
         except NoConvergence:
             flag = True # Reset this so we don't quit if step=1.0 fails
             dstep *= .5
@@ -195,7 +196,7 @@ def SCFcache(chi,chi_s,pdi,sigma,segments,disp=False,cache=_SCFcache_dict):
     return phi
 
 
-def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,segments=None,
+def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,phi_b=0,segments=None,
              disp=False,phi0=None,maxiter=15):
     """Solve SCF equations using an initial guess and lattice parameters
 
@@ -217,34 +218,30 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,segments=None,
 
     if phi0 is None:
         # TODO: Better initial guess for chi>.6
-        layers, phi0 = default_guess(segments,sigma)
-        if disp: print('No guess passed, using default phi0: layers =',layers)
+        phi0 = default_guess(segments,sigma)
+        if disp: print('No guess passed, using default phi0: layers =',len(phi0))
     else:
         phi0 = fabs(phi0)
         phi0[phi0>.99999] = .99999
-        layers = len(phi0)
-        if disp: print("Initial guess passed: layers =", layers)
+        if disp: print("Initial guess passed: layers =", len(phi0))
 
     # resizing loop variables
     jac_solve_method = 'gmres'
     lattice_too_small = True
 
-    # We tolerate up to 2ppm of our polymer in the last layer,
-    theta = sigma*segments
-    tol = 2e-6*theta
-    # otherwise we grow it by 20%.
-    ratio = .2
+    # We tolerate up to 1ppb deviation from bulk phi
+    # when counting layers_near_phi_b
+    tol = 1e-6
 
     # callback to detect an undersized lattice early
-    def callback(x,fx):
-        short_circuit_callback(x,tol)
+    callback = None # TODO: no good strategy yet ;_;
 
     while lattice_too_small:
         if disp: print("Solving SCF equations")
 
         try:
             result = root(
-                SCFeqns,phi0,args=(chi,chi_s,sigma,segments,p_i),
+                SCFeqns,phi0,args=(chi,chi_s,sigma,segments,p_i,phi_b),
                 method='Krylov',callback=callback,
                 options={'disp':bool(disp),'maxiter':maxiter,
                          'jac_options':{'method':jac_solve_method}})
@@ -272,23 +269,24 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,segments=None,
             else:
                 raise AssertionError # was: assert result.status in {1,2}
 
-        if disp: print('phi(M)/sum(phi) =', phi[-1] / theta * 1e6, '(ppm)')
+        if disp:
+            print('median deviation = {:.2e}'.format(np.median(phi - phi_b)))
+            print('lattice size:', len(phi))
 
-        lattice_too_small = phi[-1] > tol
+        layers_near_phi_b = addred(fabs(phi - phi_b) < tol)
+        lattice_too_small = layers_near_phi_b < MINBULK
         if lattice_too_small:
-            # if the last layer is beyond tolerance, grow the lattice
-            newlayers = max(1,round(len(phi0)*ratio))
+            # if there aren't 10 layers like the bulk, grow the lattice 20%
+            newlayers = max(1,round(len(phi0)*0.2))
             if disp: print('Growing undersized lattice by', newlayers)
-            phi0 = hstack((phi,np.linspace(phi[-1],0,num=newlayers)))
+            phi0 = hstack((phi,np.linspace(phi[-8],phi_b,num=newlayers)))
 
     # chop off extra layers
-    chop = addred(phi>tol)+1
-    phi = phi[:max(MINLAT,chop)]
+    chop = len(phi) - layers_near_phi_b + MINBULK
+    phi = phi[:max(MINLAT, chop)]
 
     if disp:
-        print('After chopping: phi(M)/sum(phi) =',
-              phi[-1] / theta * 1e6, '(ppm)')
-        print("lattice size:", len(phi))
+        print("lattice size after chopping:", len(phi))
         print("SCFsolve execution time:", round(time()-starttime,3), "s")
 
     return phi
@@ -311,11 +309,10 @@ def SCFsolve_u(chi=0,chi_s=0,pdi=1,sigma=None,segments=None,
     p_i = SZdist(pdi,segments)
 
     if u_z0 is None:
-        layers, u_z0 = default_guess(segments,sigma)
-        if disp: print('No guess passed, using default phi0: layers =',layers)
+        u_z0 = default_guess(segments,sigma)
+        if disp: print('No guess passed, using default phi0: layers =',len(u_z0))
     else:
-        layers = len(u_z0)
-        if disp: print("Initial guess passed: layers =", layers)
+        if disp: print("Initial guess passed: layers =", len(u_z0))
 
     # resizing loop variables
     jac_solve_method = 'gmres'
@@ -459,7 +456,7 @@ def default_guess(segments=100,sigma=.5,chi=0,chi_s=0):
     ss=sqrt(sigma)
     default_layers = round(max(MINLAT,segments*ss))
     default_phi0 = np.linspace(ss,0,num=default_layers)
-    return default_layers, default_phi0
+    return default_phi0
 
 class ShortCircuitRoot(Exception):
     """ Special error to stop root() before a solution is found.
@@ -478,7 +475,7 @@ class ShortCircuitRoot(Exception):
 #    pass
 from scipy.optimize.nonlin import NoConvergence
 
-def short_circuit_callback(x,tol):
+def short_circuit_callback(x,tol,phi_b=0):
     """ Special callback to stop root() before solution is found.
 
     This kills root if the tolerances are exceeded by 4 times the tolerances
@@ -489,7 +486,7 @@ def short_circuit_callback(x,tol):
     if abs(x[-1]) > 4*tol:
         raise ShortCircuitRoot('Stopping, lattice too small!',x)
 
-def SCFeqns(phi_z,chi,chi_s,sigma,navgsegments,p_i,dump_u = False):
+def SCFeqns(phi_z,chi,chi_s,sigma,navgsegments,p_i,phi_b = 0, dump_u = False):
     """ System of SCF equation for terminally attached polymers.
 
         Formatted for input to a nonlinear minimizer or solver.
@@ -508,32 +505,63 @@ def SCFeqns(phi_z,chi,chi_s,sigma,navgsegments,p_i,dump_u = False):
 
     layers = phi_z.size
     cutoff = p_i.size
+    uniform = cutoff == round(navgsegments) # if uniform, we can take shortcuts!
 
     # calculate new g_z (Boltzmann weighting factors)
-    g_z = calc_g_z(phi_z, chi, chi_s)
+    g_z = calc_g_z(phi_z, chi, chi_s, phi_b)
 
     u = -log(g_z)
     if dump_u:
         return u
 
+#    import matplotlib.pyplot as plt
+#    plt.cla()
+#    plt.plot(phi_z,'.')
+#    plt.plot(np.ones_like(phi_z)*phi_b)
+#    plt.draw()
+#    plt.show(block=False)
     # normalize g_z for numerical stability
     uavg = addred(u)/layers
     g_z_norm = g_z*exp(uavg)
 
-    # calculate weighting factors for terminally attached chains
-    g_zs_ta_norm = calc_g_zs(g_z_norm,0,layers,cutoff)
+    # calculate weighting factors, normalization constants, and density fields
 
-    # calculate normalization constants from 1/(single chain partition fn)
-    if cutoff == round(navgsegments): # if uniform,
-        c_i_norm = sigma/addred(g_zs_ta_norm[:,-1]) # take a shortcut!
+    # for terminally attached chains
+    if sigma:
+        g_zs_ta_norm = calc_g_zs(g_z_norm,-1,layers,cutoff)
+        if uniform:
+            c_i_ta_norm = sigma/addred(g_zs_ta_norm[:,-1])
+        else:
+            c_i_ta_norm = sigma*p_i/addred(g_zs_ta_norm,axis=0)
+        g_zs_ta_ngts_norm = calc_g_zs(g_z_norm,c_i_ta_norm,layers,cutoff)
+        phi_z_ta = calc_phi_z(g_zs_ta_norm,
+                              g_zs_ta_ngts_norm,
+                              g_z_norm,
+                              layers,
+                              cutoff)
     else:
-        c_i_norm = sigma*p_i/addred(g_zs_ta_norm,axis=0)
+        phi_z_ta = 0
 
-    # calculate weighting factors for free chains
-    g_zs_free_ngts_norm = calc_g_zs(g_z_norm,c_i_norm,layers,cutoff)
+    # for free chains
+    if phi_b:
+        g_zs_free_norm = calc_g_zs(g_z_norm,0,layers,cutoff)
+        if uniform:
+            r_i = cutoff
+        else:
+            r_i = np.arange(1,cutoff+1)
+        c_i_free = phi_b*p_i/r_i
+        normalizer = exp(r_i*uavg)
+        c_i_free_norm = c_i_free/normalizer
+        g_zs_free_ngts_norm = calc_g_zs(g_z_norm,c_i_free_norm,layers,cutoff)
+        phi_z_free = calc_phi_z(g_zs_free_norm,
+                                g_zs_free_ngts_norm,
+                                g_z_norm,
+                                layers,
+                                cutoff)
+    else:
+        phi_z_free = 0
 
-    # calculate new polymer density field
-    phi_z_new = calc_phi_z(g_zs_ta_norm,g_zs_free_ngts_norm,g_z_norm,layers,cutoff)
+    phi_z_new = phi_z_ta + phi_z_free
 
     eps_z = phi_z - phi_z_new
     eps_z += penalty*np.sign(eps_z)
@@ -557,7 +585,7 @@ def SCFeqns_u(u_z,chi,chi_s,sigma,navgsegments,p_i,dump_phi = False):
     g_z_norm = exp(u_z_avg-u_z)
 
     # calculate weighting factors for terminally attached chains
-    g_zs_ta_norm = calc_g_zs(g_z_norm,0,layers,cutoff)
+    g_zs_ta_norm = calc_g_zs(g_z_norm,-1,layers,cutoff)
 
     # calculate normalization constants from 1/(single chain partition fn)
     if cutoff == round(navgsegments): # if uniform,
@@ -590,24 +618,22 @@ def SCFeqns_u(u_z,chi,chi_s,sigma,navgsegments,p_i,dump_phi = False):
 
     return eps_z
 
-def calc_g_z(phi_z, chi, chi_s):
-
+def calc_g_z(phi_z, chi, chi_s, phi_b=0):
     layers = phi_z.size
     delta = np.zeros(layers)
     delta[0] = 1.0
     phi_z_avg = calc_phi_z_avg(phi_z)
 
     # calculate new g_z (Boltzmann weighting factors)
-    g_z = (1.0 - phi_z)*exp(2*chi*phi_z_avg + delta*chi_s)
+    g_z = (1.0 - phi_z)/(1.0 - phi_b)*exp(2*chi*(phi_z_avg-phi_b) + delta*chi_s)
 
     return g_z
-
 
 def calc_phi_z_avg(phi_z):
     return correlate(phi_z,LAMBDA_ARRAY,1)
 
-def calc_phi_z(g_ta,g_free,g_z,layers,segments):
-    prod = g_ta*np.fliplr(g_free)
+def calc_phi_z(g_zs,g_zs_ngts,g_z,layers,segments):
+    prod = g_zs*np.fliplr(g_zs_ngts)
     prod[np.isnan(prod)]=0
 #    prod=np.nan_to_num(prod)
     return addred(prod,axis=1)/g_z
@@ -618,13 +644,18 @@ def calc_g_zs(g_z,c_i,layers,segments):
 
     # choose special case
     if np.size(c_i) == 1: # floats need np.size() rather than ndarray.size
-        if c_i:
+        if c_i > 0:
             # uniform chains
             g_zs[:,0] = c_i*g_z
-        else:
-            # terminally attached ends
+        elif c_i == 0:
+            # free beginnings
+            g_zs[:,0] = g_z
+        elif c_i == -1:
+            # terminally attached beginings
             g_zs[:,0] = 0.0
             g_zs[0,0] = g_z[0]
+        else:
+            raise ValueError('Unsupported special case')
         _calc_g_zs_uniform(g_z,g_zs,LAMBDA_0,LAMBDA_1,layers,segments)
     else:
         # free ends
@@ -648,18 +679,18 @@ if PYONLY:
 
 if JIT:
 
-    def calc_phi_z(g_ta,g_free,g_z,layers,segments):
+    def calc_phi_z(g_zs,g_zs_ngts,g_z,layers,segments):
         output = np.zeros((layers))
-        _calc_phi_z(g_ta,g_free,output,layers,segments)
+        _calc_phi_z(g_zs,g_zs_ngts,output,layers,segments)
         output /= g_z
         return output
 
     @njit('void(f8[:,:],f8[:,:],f8[:],i4,i4)')
-    def _calc_phi_z(g_ta,g_free,output,layers,segments):
+    def _calc_phi_z(g_zs,g_zs_ngts,output,layers,segments):
         for s in range(segments):
             for z in range(layers):
-                if g_ta[z,s] and g_free[z,segments-s-1]: # Prevent NaNs
-                    output[z]+=g_ta[z,s]*g_free[z,segments-s-1]
+                if g_zs[z,s] and g_zs_ngts[z,segments-s-1]: # Prevent NaNs
+                    output[z]+=g_zs[z,s]*g_zs_ngts[z,segments-s-1]
 
     @njit('void(f8[:],f8[:],f8[:,:],f8,f8,i4,i4)')
     def _calc_g_zs(g_z,c_i,g_zs,LAMBDA_0,LAMBDA_1,layers,segments):
@@ -691,3 +722,27 @@ if JIT:
             g_zs[layers-1,r]=(g_zs[layers-1,r-1]*LAMBDA_0
                               + g_zs[layers-2,r-1]*LAMBDA_1
                               ) * g_z[layers-1]
+
+if __name__ == '__main__':
+    chi=0
+    chi_s=0
+    sigma=0.1
+    n=100
+    pdi=1
+    phi_b = 0.2
+    maxiter=100
+    phi0 = np.linspace(sigma,phi_b,100)
+#        np.array((
+#             7.68622748e-01,   7.38403430e-01,   7.24406743e-01,
+#             7.18854113e-01,   7.13805025e-01,   7.08721605e-01,
+#             7.03592422e-01,   6.98483104e-01,   6.93373096e-01,
+#             6.87807938e-01,   6.79307808e-01,   6.56674507e-01,
+#             5.77590583e-01,   3.58036148e-01,   1.00802863e-01,
+#             1.68381666e-02,   2.86654637e-03,   6.37708606e-04,
+#             1.74095080e-04,   5.19490850e-05,   1.59662700e-05,
+#             4.94738039e-06,   1.53508370e-06,   4.75950448e-07,
+#             1.47353950e-07))
+    result = SCFcache(chi,chi_s,pdi,sigma,phi_b,n,disp=True)
+    import matplotlib.pyplot as plt
+    plt.plot(result,'.')
+    plt.plot(phi_b*np.ones_like(result))
