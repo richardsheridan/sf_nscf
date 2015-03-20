@@ -439,10 +439,10 @@ def SZdist(pdi,nn,cache=_SZdist_dict):
 
     if uniform or pdi_underflow:
         # NOTE: rounding here allows nn to be a double in the rest of the logic
-        p_ni = np.zeros((1,round(nn)))
-        p_ni[0,-1] = 1.0
+        p_ni = np.zeros(round(nn))
+        p_ni[-1] = 1.0
     else:
-        p_ni = hstack(p_ni_list).reshape(1,-1)
+        p_ni = hstack(p_ni_list)
 
     cache[args]=p_ni
 
@@ -561,7 +561,7 @@ def SCFeqns_u(u_z,chi,chi_s,sigma,navgsegments,p_i,dump_phi = False):
 
     # calculate normalization constants from 1/(single chain partition fn)
     if cutoff == round(navgsegments): # if uniform,
-        c_i_norm = sigma/addred(g_zs_ta_norm[:,-1]) # take a shortcut!
+        c_i_norm = sigma/addred(g_zs_ta_norm[-1]) # take a shortcut!
     else:
         c_i_norm = sigma*p_i/addred(g_zs_ta_norm,axis=0)
 
@@ -628,7 +628,7 @@ def calc_g_zs(g_z,c_i,layers,segments):
         _calc_g_zs_uniform(g_z,g_zs,LAMBDA_0,LAMBDA_1,layers,segments)
     else:
         # free ends
-        g_zs[:,0] = c_i[0,-1]*g_z
+        g_zs[:,0] = c_i[-1]*g_z
         _calc_g_zs(g_z,c_i,g_zs,LAMBDA_0,LAMBDA_1,layers,segments)
 
     return g_zs
@@ -636,7 +636,7 @@ def calc_g_zs(g_z,c_i,layers,segments):
 if PYONLY:
     def _calc_g_zs(g_z,c_i,g_zs,LAMBDA_0,LAMBDA_1,layers,segments):
         pg_zs = g_zs[:,0]
-        segment_iterator = enumerate(c_i[0,::-1])
+        segment_iterator = enumerate(c_i[::-1])
         next(segment_iterator)
         for r,c in segment_iterator:
             g_zs[:,r] = pg_zs = (correlate(pg_zs,LAMBDA_ARRAY,1) + c) * g_z
@@ -661,10 +661,10 @@ if JIT:
                 if g_ta[z,s] and g_free[z,segments-s-1]: # Prevent NaNs
                     output[z]+=g_ta[z,s]*g_free[z,segments-s-1]
 
-    @njit('void(f8[:],f8[:,:],f8[:,:],f8,f8,i4,i4)')
+    @njit('void(f8[:],f8[:],f8[:,:],f8,f8,i4,i4)')
     def _calc_g_zs(g_z,c_i,g_zs,LAMBDA_0,LAMBDA_1,layers,segments):
         for r in range(1,segments):
-            c = c_i[0,segments-r-1]
+            c = c_i[segments-r-1]
             g_zs[0,r] = (g_zs[0,r-1]*LAMBDA_0
                          + g_zs[1,r-1]*LAMBDA_1
                          + c) * g_z[0]

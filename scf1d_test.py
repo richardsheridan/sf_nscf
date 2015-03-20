@@ -63,8 +63,8 @@ def calc_g_zs_test():
          1.05516234,  1.07922242,  1.10404129,  1.1295452 ,  1.15567502)))
 
     # free chains
-    c_i = np.zeros((1,segments))
-    c_i[0,-1]= 1.0
+    c_i = np.zeros(segments)
+    c_i[-1]= 1.0
     assert np.allclose(calc_g_zs(g_z,c_i,layers,segments), data, atol=1e-14)
 
     # uniform chains
