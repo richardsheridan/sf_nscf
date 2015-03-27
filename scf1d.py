@@ -178,10 +178,13 @@ def SCFcache(chi,chi_s,pdi,sigma,phi_b,segments,disp=False,cache=_SCFcache_dict)
         try:
             phi = SCFsolve(p_tup[0], p_tup[1]/3, p_tup[2]+1, p_tup[3], p_tup[4],
                            p_tup[5]*500, disp=disp, phi0=phi)
-        except NoConvergence:
+        except (NoConvergence, ValueError):
+            if disp: print('Step failed')
             flag = True # Reset this so we don't quit if step=1.0 fails
             dstep *= .5
             step -= dstep
+            if dstep < 1e-5:
+                raise RuntimeError('Cache walk appears to be stuck')
         else: # Belongs to try, executes if no exception is raised
             cache[p_tup] = phi
             dstep *= 1.05
@@ -197,7 +200,7 @@ def SCFcache(chi,chi_s,pdi,sigma,phi_b,segments,disp=False,cache=_SCFcache_dict)
 
 
 def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,phi_b=0,segments=None,
-             disp=False,phi0=None,maxiter=15):
+             disp=False,phi0=None,maxiter=30):
     """Solve SCF equations using an initial guess and lattice parameters
 
     This function finds a solution for the equations where the lattice size
@@ -229,9 +232,9 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,phi_b=0,segments=None,
     jac_solve_method = 'gmres'
     lattice_too_small = True
 
-    # We tolerate up to 1ppb deviation from bulk phi
+    # We tolerate up to 10 ppm deviation from bulk phi
     # when counting layers_near_phi_b
-    tol = 1e-6
+    tol = 1e-5
 
     # callback to detect an undersized lattice early
     callback = None # TODO: no good strategy yet ;_;
@@ -240,11 +243,13 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,phi_b=0,segments=None,
         if disp: print("Solving SCF equations")
 
         try:
-            result = root(
-                SCFeqns,phi0,args=(chi,chi_s,sigma,segments,p_i,phi_b),
-                method='Krylov',callback=callback,
-                options={'disp':bool(disp),'maxiter':maxiter,
-                         'jac_options':{'method':jac_solve_method}})
+            result = root(SCFeqns,
+                          phi0,
+                          args=(chi,chi_s,sigma,segments,p_i,phi_b),
+                          method='Krylov',
+                          callback=callback,
+                          options={'disp':bool(disp),'maxiter':maxiter,
+                                  'jac_options':{'method':jac_solve_method}})
         except ShortCircuitRoot as e:
             # dumping out to resize since we've exceeded resize tol by 4x
             phi = fabs(e.x)
@@ -270,30 +275,26 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,phi_b=0,segments=None,
                 raise AssertionError # was: assert result.status in {1,2}
 
         if disp:
-            print('median deviation = {:.2e}'.format(np.median(phi - phi_b)))
             print('lattice size:', len(phi))
 
         layers_near_phi_b = addred(fabs(phi - phi_b) < tol)
+
         lattice_too_small = layers_near_phi_b < MINBULK
         if lattice_too_small:
-            # if there aren't 10 layers like the bulk, grow the lattice 20%
+            # if there aren't enough layers_near_phi_b, grow the lattice 20%
             newlayers = max(1,round(len(phi0)*0.2))
             if disp: print('Growing undersized lattice by', newlayers)
-            phi0 = hstack((phi,np.linspace(phi[-8],phi_b,num=newlayers)))
-
-    # chop off extra layers
-    chop = len(phi) - layers_near_phi_b + MINBULK
-    phi = phi[:max(MINLAT, chop)]
+            phi0 = hstack((phi[:-5],np.linspace(phi[-6],phi[-5],num=newlayers),
+                           phi[-5:]))
 
     if disp:
-        print("lattice size after chopping:", len(phi))
         print("SCFsolve execution time:", round(time()-starttime,3), "s")
 
     return phi
 
 
 def SCFsolve_u(chi=0,chi_s=0,pdi=1,sigma=None,segments=None,
-             disp=False,u_z0=None,maxiter=15):
+             disp=False,u_z0=None,maxiter=30):
     """ Solve SCF equations using an initial guess and lattice parameters
 
         This function finds a solution in terms of the potential field.
@@ -486,7 +487,8 @@ def short_circuit_callback(x,tol,phi_b=0):
     if abs(x[-1]) > 4*tol:
         raise ShortCircuitRoot('Stopping, lattice too small!',x)
 
-def SCFeqns(phi_z,chi,chi_s,sigma,navgsegments,p_i,phi_b = 0, dump_u = False):
+def SCFeqns(phi_z, chi, chi_s, sigma, navgsegments, p_i,
+            phi_b = 0, dump_u = False):
     """ System of SCF equation for terminally attached polymers.
 
         Formatted for input to a nonlinear minimizer or solver.
@@ -547,11 +549,12 @@ def SCFeqns(phi_z,chi,chi_s,sigma,navgsegments,p_i,phi_b = 0, dump_u = False):
         g_zs_free_norm = calc_g_zs(g_z_norm,0,layers,cutoff)
         if uniform:
             r_i = cutoff
+            c_i_free = phi_b/r_i
         else:
             r_i = np.arange(1,cutoff+1)
-        c_i_free = phi_b*p_i/r_i
-        normalizer = exp(r_i*uavg)
-        c_i_free_norm = c_i_free/normalizer
+            c_i_free = phi_b*p_i/r_i
+        normalizer = exp(-uavg*r_i)
+        c_i_free_norm = c_i_free*normalizer
         g_zs_free_ngts_norm = calc_g_zs(g_z_norm,c_i_free_norm,layers,cutoff)
         phi_z_free = calc_phi_z(g_zs_free_norm,
                                 g_zs_free_ngts_norm,
@@ -725,24 +728,13 @@ if JIT:
 
 if __name__ == '__main__':
     chi=0
-    chi_s=0
+    chi_s=.1
     sigma=0.1
-    n=100
+    n=300
     pdi=1
-    phi_b = 0.2
-    maxiter=100
-    phi0 = np.linspace(sigma,phi_b,100)
-#        np.array((
-#             7.68622748e-01,   7.38403430e-01,   7.24406743e-01,
-#             7.18854113e-01,   7.13805025e-01,   7.08721605e-01,
-#             7.03592422e-01,   6.98483104e-01,   6.93373096e-01,
-#             6.87807938e-01,   6.79307808e-01,   6.56674507e-01,
-#             5.77590583e-01,   3.58036148e-01,   1.00802863e-01,
-#             1.68381666e-02,   2.86654637e-03,   6.37708606e-04,
-#             1.74095080e-04,   5.19490850e-05,   1.59662700e-05,
-#             4.94738039e-06,   1.53508370e-06,   4.75950448e-07,
-#             1.47353950e-07))
-    result = SCFcache(chi,chi_s,pdi,sigma,phi_b,n,disp=True)
-    import matplotlib.pyplot as plt
-    plt.plot(result,'.')
-    plt.plot(phi_b*np.ones_like(result))
+    phi_b = .6
+    result = SCFcache(chi,chi_s,pdi,sigma,phi_b,n,disp=1)
+#    import matplotlib.pyplot as plt
+#    plt.plot(result,'.')
+#    plt.plot(np.ones_like(result)*(phi_b))
+#    plt.show(block=True)
