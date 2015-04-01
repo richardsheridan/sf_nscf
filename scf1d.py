@@ -60,7 +60,7 @@ MINLAT = 25
 MINBULK = 5
 
 def SCFprofile(z, chi=None, chi_s=None, h_dry=None, l_lat=1, mn=None,
-               m_lat=1, pdi=1, disp=False):
+               m_lat=1, phi_b=0, pdi=1, disp=False):
     """
     Generate volume fraction profile for Refl1D based on real parameters.
 
@@ -84,14 +84,20 @@ def SCFprofile(z, chi=None, chi_s=None, h_dry=None, l_lat=1, mn=None,
 
     # solve the self consistent field equations using the cache
     if disp: print("\n=====Begin calculations=====\n")
-    phi_lat = SCFcache(chi,chi_s,pdi,sigma,segments,disp)
+    phi_lat = SCFcache(chi,chi_s,pdi,sigma,phi_b,segments,disp)
     if disp: print("\n============================\n")
+
+    # Chop edge effects out
+    for x,layer in enumerate(reversed(phi_lat)):
+        if abs(layer - phi_b) < 1e-6:
+            break
+    phi_lat = phi_lat[:-(x+1)]
 
     # re-dimensionalize the solution
     layers = len(phi_lat)
     z_end = l_lat*layers
     z_lat = np.linspace(0.0,z_end,num=layers)
-    phi = np.interp(z,z_lat,phi_lat,right=0.0)
+    phi = np.interp(z,z_lat,phi_lat,right=phi_b)
 
     return phi
 
@@ -101,9 +107,11 @@ def SCFcache(chi,chi_s,pdi,sigma,phi_b,segments,disp=False,cache=_SCFcache_dict)
 
     Using an OrderedDict because I want to prune keys FIFO
     """
-    # prime the cache with a known easy solution
+    # prime the cache with a known easy solutions
     if not cache:
         cache[(0,0,0,.1,.1,.1)] = SCFsolve(sigma=.1,phi_b=.1,segments=50,disp=disp)
+        cache[(0,0,0,0,.1,.1)] = SCFsolve(sigma=0,phi_b=.1,segments=50,disp=disp)
+        cache[(0,0,0,.1,0,.1)] = SCFsolve(sigma=.1,phi_b=0,segments=50,disp=disp)
 
     if disp: starttime = time()
 
@@ -376,13 +384,7 @@ def SCFsolve_u(chi=0,chi_s=0,pdi=1,sigma=None,segments=None,
             if disp: print('Growing undersized lattice by', newlayers)
             u_z = hstack((u_z,np.linspace(u_z[-1],0,num=newlayers)))
 
-    # chop off extra layers
-    chop = addred(phi>tol)+1
-    u_z = u_z[:max(MINLAT,chop)]
-
     if disp:
-        print('After chopping: phi(M)/sum(phi) =',
-              phi[:max(MINLAT,chop)][-1] / theta * 1e6, '(ppm)')
         print("lattice size:", len(u_z))
         print("SCFsolve execution time:", round(time()-starttime,3), "s")
 
@@ -516,12 +518,6 @@ def SCFeqns(phi_z, chi, chi_s, sigma, navgsegments, p_i,
     if dump_u:
         return u
 
-#    import matplotlib.pyplot as plt
-#    plt.cla()
-#    plt.plot(phi_z,'.')
-#    plt.plot(np.ones_like(phi_z)*phi_b)
-#    plt.draw()
-#    plt.show(block=False)
     # normalize g_z for numerical stability
     uavg = addred(u)/layers
     g_z_norm = g_z*exp(uavg)
@@ -727,15 +723,16 @@ if JIT:
                               ) * g_z[layers-1]
 
 if __name__ == '__main__':
-    chi=0
-    chi_s=.1
-    sigma=0.1
-    n=300
-    pdi=1
-    phi_b = .6
+    chi = .1
+    chi_s = 0.1
+    sigma = .0
+    phi_b  = 0.1
+    n = 95.5
+    pdi = 1.2
     result = SCFcache(chi,chi_s,pdi,sigma,phi_b,n,disp=1)
-#    import matplotlib.pyplot as plt
-#    plt.figure(figsize=(10,10))
-#    plt.plot(result,'.')
-#    plt.plot(np.ones_like(result)*(phi_b))
-#    plt.show(block=True)
+
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(10,10))
+    plt.plot(result,'.')
+    plt.plot(np.ones_like(result)*(phi_b))
+    plt.show(block=True)
