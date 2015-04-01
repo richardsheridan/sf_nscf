@@ -721,18 +721,3 @@ if JIT:
             g_zs[layers-1,r]=(g_zs[layers-1,r-1]*LAMBDA_0
                               + g_zs[layers-2,r-1]*LAMBDA_1
                               ) * g_z[layers-1]
-
-if __name__ == '__main__':
-    chi = .1
-    chi_s = 0.1
-    sigma = .0
-    phi_b  = 0.1
-    n = 95.5
-    pdi = 1.2
-    result = SCFcache(chi,chi_s,pdi,sigma,phi_b,n,disp=1)
-
-    import matplotlib.pyplot as plt
-    plt.figure(figsize=(10,10))
-    plt.plot(result,'.')
-    plt.plot(np.ones_like(result)*(phi_b))
-    plt.show(block=True)
