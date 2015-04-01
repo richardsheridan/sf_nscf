@@ -103,7 +103,7 @@ def SCFcache(chi,chi_s,pdi,sigma,phi_b,segments,disp=False,cache=_SCFcache_dict)
     """
     # prime the cache with a known easy solution
     if not cache:
-        cache[(0,0,0,.1,0,.2)] = SCFsolve(sigma=.1,segments=100,disp=disp)
+        cache[(0,0,0,.1,.1,.1)] = SCFsolve(sigma=.1,phi_b=.1,segments=50,disp=disp)
 
     if disp: starttime = time()
 
@@ -449,14 +449,14 @@ def SZdist(pdi,nn,cache=_SZdist_dict):
 
     return p_ni
 
-def default_guess(segments=100,sigma=.5,chi=0,chi_s=0):
+def default_guess(segments=100,sigma=.5,phi_b=.1,chi=0,chi_s=0):
     """ Produce an initial guess for phi via analytical approximants.
 
     For now, a line using numbers from scaling theory
     """
     ss=sqrt(sigma)
     default_layers = round(max(MINLAT,segments*ss))
-    default_phi0 = np.linspace(ss,0,num=default_layers)
+    default_phi0 = np.linspace(ss,phi_b,num=default_layers)
     return default_phi0
 
 class ShortCircuitRoot(Exception):
@@ -735,6 +735,7 @@ if __name__ == '__main__':
     phi_b = .6
     result = SCFcache(chi,chi_s,pdi,sigma,phi_b,n,disp=1)
 #    import matplotlib.pyplot as plt
+#    plt.figure(figsize=(10,10))
 #    plt.plot(result,'.')
 #    plt.plot(np.ones_like(result)*(phi_b))
 #    plt.show(block=True)
