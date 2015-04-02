@@ -51,6 +51,8 @@ from numpy.core.multiarray import correlate
 # Faster version of numpy.sum for ndarray only
 from numpy.core import add
 addred = add.reduce
+if not JIT:
+    fastsum = addred
 
 # Precalculate some global constants
 LAMBDA_1 = np.float64(1.0)/6.0 #always assume cubic lattice (1/6) for now
@@ -440,7 +442,7 @@ def SCFeqns(phi_z, chi, chi_s, sigma, navgsegments, p_i,
         if uniform:
             c_i_ta_norm = sigma/addred(g_zs_ta_norm[:,-1])
         else:
-            c_i_ta_norm = sigma*p_i/addred(g_zs_ta_norm,axis=0)
+            c_i_ta_norm = sigma*p_i/fastsum(g_zs_ta_norm,axis=0)
         g_zs_ta_ngts_norm = calc_g_zs(g_z_norm,c_i_ta_norm,layers,cutoff)
         phi_z_ta = calc_phi_z(g_zs_ta_norm,
                               g_zs_ta_ngts_norm,
@@ -538,6 +540,17 @@ if PYONLY:
             g_zs[:,r] = pg_zs = correlate(pg_zs,LAMBDA_ARRAY,1) * g_z
 
 if JIT:
+    def fastsum(g_zs,axis=0):
+        layers, segments = g_zs.shape
+        output = np.zeros(segments)
+        _fastsum(g_zs,output,layers,segments)
+        return output
+
+    @njit('void(f8[:,:],f8[:],i4,i4)')
+    def _fastsum(g_zs,output,layers,segments):
+        for s in range(segments):
+            for z in range(layers):
+                output[s]+=g_zs[z,s]
 
     def calc_phi_z(g_zs,g_zs_ngts,g_z,layers,segments):
         output = np.zeros((layers))
