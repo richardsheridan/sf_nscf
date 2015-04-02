@@ -4,7 +4,7 @@ Created on Mon Sep 15 21:08:34 2014
 
 @author: Richard Sheridan
 
-These tests were generated using the code as of 11/7/14.
+These tests were generated using the code as of 4/2/14.
 No guarantee is made regarding absolute correctness, only that the results
 haven't changed since that version.
 """
