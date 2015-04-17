@@ -427,12 +427,15 @@ def SCFeqns(phi_z, chi, chi_s, sigma, navgsegments, p_i,
 
     # for terminally attached chains
     if sigma:
-        g_zs_ta_norm = calc_g_zs(g_z_norm,-1,layers,cutoff)
+        g_zs_ta_norm = calc_g_zs_ta(g_z_norm,layers,cutoff)
+
         if uniform:
             c_i_ta_norm = sigma/np.sum(g_zs_ta_norm[:,-1])
+            g_zs_ta_ngts_norm = calc_g_zs_ngts_u(g_z_norm,c_i_ta_norm,layers,cutoff)
         else:
             c_i_ta_norm = sigma*p_i/fastsum(g_zs_ta_norm,axis=0)
-        g_zs_ta_ngts_norm = calc_g_zs(g_z_norm,c_i_ta_norm,layers,cutoff)
+            g_zs_ta_ngts_norm = calc_g_zs_ngts(g_z_norm,c_i_ta_norm,layers,cutoff)
+
         phi_z_ta = calc_phi_z(g_zs_ta_norm,
                               g_zs_ta_ngts_norm,
                               g_z_norm,
@@ -443,16 +446,21 @@ def SCFeqns(phi_z, chi, chi_s, sigma, navgsegments, p_i,
 
     # for free chains
     if phi_b:
-        g_zs_free_norm = calc_g_zs(g_z_norm,0,layers,cutoff)
+        g_zs_free_norm = calc_g_zs_free(g_z_norm,layers,cutoff)
+
         if uniform:
             r_i = cutoff
-            c_i_free = phi_b/r_i
+            c_free = phi_b/r_i
+            normalizer = exp(-uavg*r_i)
+            c_free_norm = c_free*normalizer
+            g_zs_free_ngts_norm = calc_g_zs_ngts_u(g_z_norm,c_free_norm,layers,cutoff)
         else:
             r_i = np.arange(1,cutoff+1)
             c_i_free = phi_b*p_i/r_i
-        normalizer = exp(-uavg*r_i)
-        c_i_free_norm = c_i_free*normalizer
-        g_zs_free_ngts_norm = calc_g_zs(g_z_norm,c_i_free_norm,layers,cutoff)
+            normalizer = exp(-uavg*r_i)
+            c_i_free_norm = c_i_free*normalizer
+            g_zs_free_ngts_norm = calc_g_zs_ngts(g_z_norm,c_i_free_norm,layers,cutoff)
+
         phi_z_free = calc_phi_z(g_zs_free_norm,
                                 g_zs_free_ngts_norm,
                                 g_z_norm,
@@ -488,29 +496,46 @@ def calc_phi_z(g_zs,g_zs_ngts,g_z,layers,segments):
 #    prod=np.nan_to_num(prod)
     return np.sum(prod,axis=1)/g_z
 
-def calc_g_zs(g_z,c_i,layers,segments):
-    # initialize
+def calc_g_zs_ta(g_z,layers,segments):
+    # terminally attached beginings
+    # forward propagator
+
     g_zs=np.empty((layers,segments),order='F')
 
-    # choose special case
-    if np.size(c_i) == 1: # floats need np.size() rather than ndarray.size
-        if c_i > 0:
-            # uniform chains
-            g_zs[:,0] = c_i*g_z
-        elif c_i == 0:
-            # free beginnings
-            g_zs[:,0] = g_z
-        elif c_i == -1:
-            # terminally attached beginings
-            g_zs[:,0] = 0.0
-            g_zs[0,0] = g_z[0]
-        else:
-            raise ValueError('Unsupported special case')
-        _calc_g_zs_uniform(g_z,g_zs,LAMBDA_0,LAMBDA_1,layers,segments)
-    else:
-        # free ends
-        g_zs[:,0] = c_i[-1]*g_z
-        _calc_g_zs(g_z,c_i,g_zs,LAMBDA_0,LAMBDA_1,layers,segments)
+    g_zs[:,0] = 0.0
+    g_zs[0,0] = g_z[0]
+
+    _calc_g_zs_uniform(g_z,g_zs,LAMBDA_0,LAMBDA_1,layers,segments)
+
+    return g_zs
+
+def calc_g_zs_free(g_z,layers,segments):
+    # free beginnings
+    # forward propagator
+
+    g_zs=np.empty((layers,segments),order='F')
+    g_zs[:,0] = g_z
+    _calc_g_zs_uniform(g_z,g_zs,LAMBDA_0,LAMBDA_1,layers,segments)
+
+    return g_zs
+
+def calc_g_zs_ngts_u(g_z,c,layers,segments):
+    # free ends of uniform chains
+    # reverse propagator
+
+    g_zs=np.empty((layers,segments),order='F')
+    g_zs[:,0] = c*g_z
+    _calc_g_zs_uniform(g_z,g_zs,LAMBDA_0,LAMBDA_1,layers,segments)
+
+    return g_zs
+
+def calc_g_zs_ngts(g_z, c_i,layers,segments):
+    # free ends of disperse chains
+    # reverse propagator
+
+    g_zs=np.empty((layers,segments),order='F')
+    g_zs[:,0] = c_i[-1]*g_z
+    _calc_g_zs(g_z,c_i,g_zs,LAMBDA_0,LAMBDA_1,layers,segments)
 
     return g_zs
 
