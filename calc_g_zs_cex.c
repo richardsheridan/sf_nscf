@@ -8,17 +8,20 @@ PyObject *Pcalc_g_zs(PyObject *self, PyObject *args)
     PyArrayObject *g_z_pao, *c_i_pao, *g_zs_pao;
     double lambda_0, lambda_1, cval;
     double *g_z, *c_i, *g_zs, *g_zs_next;
+    npy_intp *shape;
     Py_ssize_t segments, layers, r, z, i;
     
-    if (!PyArg_ParseTuple(args, "O!O!O!ddnn",
+    if (!PyArg_ParseTuple(args, "O!O!O!dd",
                             &PyArray_Type,&g_z_pao,
                             &PyArray_Type,&c_i_pao,
                             &PyArray_Type,&g_zs_pao, 
                             &lambda_0,
-                            &lambda_1,
-                            &layers,
-                            &segments))
+                            &lambda_1))
     {return NULL;}
+    
+    shape = PyArray_SHAPE(g_zs_pao);
+    layers = shape[0];
+    segments = shape[1];
 
     g_z=(double *) PyArray_DATA(g_z_pao);
     c_i=(double *) PyArray_DATA(c_i_pao);
@@ -62,16 +65,19 @@ PyObject *Pcalc_g_zs_uniform(PyObject *self, PyObject *args)
     PyArrayObject *g_z_pao, *g_zs_pao;
     double lambda_0, lambda_1;
     double *g_z, *g_zs, *g_zs_next;
+    npy_intp *shape;
     Py_ssize_t segments, layers, r, z, i;
     
-    if (!PyArg_ParseTuple(args, "O!O!ddnn",
+    if (!PyArg_ParseTuple(args, "O!O!dd",
                             &PyArray_Type,&g_z_pao,
                             &PyArray_Type,&g_zs_pao,
                             &lambda_0,
-                            &lambda_1,
-                            &layers,
-                            &segments))
+                            &lambda_1))
     {return NULL;}
+    
+    shape = PyArray_SHAPE(g_zs_pao);
+    layers = shape[0];
+    segments = shape[1];
 
     g_z=(double *) PyArray_DATA(g_z_pao);
     g_zs=(double *) PyArray_DATA(g_zs_pao);
@@ -110,18 +116,20 @@ PyObject *Pcalc_g_zs_pointers(PyObject *self, PyObject *args)
     PyArrayObject *g_z_pao, *c_i_pao, *g_zs_pao;
     double lambda_0, lambda_1, cval;
     double *g_z, *c_i, *g_zs, *g_zs_prev, *g_zs_prev_above, *g_zs_prev_below;
+    npy_intp *shape;
     Py_ssize_t segments, layers, s, z;
     
-    if (!PyArg_ParseTuple(args, "O!O!O!ddnn",
+    if (!PyArg_ParseTuple(args, "O!O!O!dd",
                             &PyArray_Type,&g_z_pao,
                             &PyArray_Type,&c_i_pao,
                             &PyArray_Type,&g_zs_pao, 
                             &lambda_0,
-                            &lambda_1,
-                            &layers,
-                            &segments))
+                            &lambda_1))
     {return NULL;}
-
+    
+    shape = PyArray_SHAPE(g_zs_pao);
+    layers = shape[0];
+    segments = shape[1];
 
     g_z=(double *) PyArray_DATA(g_z_pao);
     c_i=(double *) PyArray_DATA(c_i_pao)+segments-1; // iterate backwards
@@ -183,14 +191,14 @@ PyObject *Pcalc_g_zs_pointers(PyObject *self, PyObject *args)
 
 static PyMethodDef calc_g_zs_cex_methods[] =
 {
-    {"_calc_g_zs", Pcalc_g_zs, METH_VARARGS, 
-    "_calc_g_zs(g_z,c_i,g_zs,lambda_0,lambda_1,layers,segments): calculate G(z,s)"
+    {"_calc_g_zs_cex", Pcalc_g_zs, METH_VARARGS, 
+    "_calc_g_zs_cex(g_z,c_i,g_zs,lambda_0,lambda_1): calculate G(z,s)"
     },
-    {"_calc_g_zs_uniform", Pcalc_g_zs_uniform, METH_VARARGS, 
-    "_calc_g_zs_uniform(g_z,g_zs,lambda_0,lambda_1,layers,segments): calculate G(z,s) for uniform chains"
+    {"_calc_g_zs_uniform_cex", Pcalc_g_zs_uniform, METH_VARARGS, 
+    "_calc_g_zs_uniform_cex(g_z,g_zs,lambda_0,lambda_1): calculate G(z,s) for uniform chains"
     },
-    {"_calc_g_zs_pointers", Pcalc_g_zs_pointers, METH_VARARGS, 
-    "_calc_g_zs_pointers(g_z,c_i,g_zs,lambda_0,lambda_1,layers,segments): calculate G(z,s) using pointer tricks"
+    {"_calc_g_zs_pointers_cex", Pcalc_g_zs_pointers, METH_VARARGS, 
+    "_calc_g_zs_pointers_cex(g_z,c_i,g_zs,lambda_0,lambda_1): calculate G(z,s) using pointer tricks"
     },
     {NULL, NULL, 0, NULL}
 };

@@ -35,7 +35,7 @@ try:
     JIT = True
 except ImportError:
     try:
-        from calc_g_zs_cex import _calc_g_zs, _calc_g_zs_uniform
+        from calc_g_zs_cex import _calc_g_zs_cex, _calc_g_zs_uniform_cex
     except ImportError:
         from warnings import warn
         warn('Compiled inner loop unavailable, using slow as molasses version!')
@@ -427,45 +427,43 @@ def SCFeqns(phi_z, chi, chi_s, sigma, navgsegments, p_i,
 
     # for terminally attached chains
     if sigma:
-        g_zs_ta_norm = calc_g_zs_ta(g_z_norm,layers,cutoff)
+        g_zs_ta_norm = calc_g_zs_ta(g_z_norm,cutoff)
 
         if uniform:
             c_i_ta_norm = sigma/np.sum(g_zs_ta_norm[:,-1])
-            g_zs_ta_ngts_norm = calc_g_zs_ngts_u(g_z_norm,c_i_ta_norm,layers,cutoff)
+            g_zs_ta_ngts_norm = calc_g_zs_ngts_u(g_z_norm,c_i_ta_norm,cutoff)
         else:
             c_i_ta_norm = sigma*p_i/fastsum(g_zs_ta_norm,axis=0)
-            g_zs_ta_ngts_norm = calc_g_zs_ngts(g_z_norm,c_i_ta_norm,layers,cutoff)
+            g_zs_ta_ngts_norm = calc_g_zs_ngts(g_z_norm,c_i_ta_norm)
 
         phi_z_ta = calc_phi_z(g_zs_ta_norm,
                               g_zs_ta_ngts_norm,
                               g_z_norm,
-                              layers,
-                              cutoff)
+                              )
     else:
         phi_z_ta = 0
 
     # for free chains
     if phi_b:
-        g_zs_free_norm = calc_g_zs_free(g_z_norm,layers,cutoff)
+        g_zs_free_norm = calc_g_zs_free(g_z_norm,cutoff)
 
         if uniform:
             r_i = cutoff
             c_free = phi_b/r_i
             normalizer = exp(-uavg*r_i)
             c_free_norm = c_free*normalizer
-            g_zs_free_ngts_norm = calc_g_zs_ngts_u(g_z_norm,c_free_norm,layers,cutoff)
+            g_zs_free_ngts_norm = calc_g_zs_ngts_u(g_z_norm,c_free_norm,cutoff)
         else:
             r_i = np.arange(1,cutoff+1)
             c_i_free = phi_b*p_i/r_i
             normalizer = exp(-uavg*r_i)
             c_i_free_norm = c_i_free*normalizer
-            g_zs_free_ngts_norm = calc_g_zs_ngts(g_z_norm,c_i_free_norm,layers,cutoff)
+            g_zs_free_ngts_norm = calc_g_zs_ngts(g_z_norm,c_i_free_norm)
 
         phi_z_free = calc_phi_z(g_zs_free_norm,
                                 g_zs_free_ngts_norm,
                                 g_z_norm,
-                                layers,
-                                cutoff)
+                                )
     else:
         phi_z_free = 0
 
@@ -480,106 +478,106 @@ def calc_g_z(phi_z, chi, chi_s, phi_b=0):
     layers = phi_z.size
     delta = np.zeros(layers)
     delta[0] = 1.0
-    phi_z_avg = calc_phi_z_avg(phi_z)
+    phi_z_avg = correlate(phi_z,LAMBDA_ARRAY,1)
 
     # calculate new g_z (Boltzmann weighting factors)
     g_z = (1.0 - phi_z)/(1.0 - phi_b)*exp(2*chi*(phi_z_avg-phi_b) + delta*chi_s)
 
     return g_z
 
-def calc_phi_z_avg(phi_z):
-    return correlate(phi_z,LAMBDA_ARRAY,1)
-
-def calc_phi_z(g_zs,g_zs_ngts,g_z,layers,segments):
+def calc_phi_z(g_zs,g_zs_ngts,g_z):
     prod = g_zs*np.fliplr(g_zs_ngts)
     prod[np.isnan(prod)]=0
-#    prod=np.nan_to_num(prod)
     return np.sum(prod,axis=1)/g_z
 
-def calc_g_zs_ta(g_z,layers,segments):
+def calc_g_zs_ta(g_z,segments):
     # terminally attached beginings
     # forward propagator
 
-    g_zs=np.empty((layers,segments),order='F')
+    g_zs=np.empty((g_z.size,segments),order='F')
 
     g_zs[:,0] = 0.0
     g_zs[0,0] = g_z[0]
 
-    _calc_g_zs_uniform(g_z,g_zs,LAMBDA_0,LAMBDA_1,layers,segments)
+    _calc_g_zs_uniform(g_z,g_zs)
 
     return g_zs
 
-def calc_g_zs_free(g_z,layers,segments):
+def calc_g_zs_free(g_z,segments):
     # free beginnings
     # forward propagator
 
-    g_zs=np.empty((layers,segments),order='F')
+    g_zs=np.empty((g_z.size,segments),order='F')
     g_zs[:,0] = g_z
-    _calc_g_zs_uniform(g_z,g_zs,LAMBDA_0,LAMBDA_1,layers,segments)
+    _calc_g_zs_uniform(g_z,g_zs)
 
     return g_zs
 
-def calc_g_zs_ngts_u(g_z,c,layers,segments):
+def calc_g_zs_ngts_u(g_z,c,segments):
     # free ends of uniform chains
     # reverse propagator
 
-    g_zs=np.empty((layers,segments),order='F')
+    g_zs=np.empty((g_z.size,segments),order='F')
     g_zs[:,0] = c*g_z
-    _calc_g_zs_uniform(g_z,g_zs,LAMBDA_0,LAMBDA_1,layers,segments)
+    _calc_g_zs_uniform(g_z,g_zs)
 
     return g_zs
 
-def calc_g_zs_ngts(g_z, c_i,layers,segments):
+def calc_g_zs_ngts(g_z,c_i):
     # free ends of disperse chains
     # reverse propagator
 
-    g_zs=np.empty((layers,segments),order='F')
+    g_zs=np.empty((g_z.size,c_i.size),order='F')
     g_zs[:,0] = c_i[-1]*g_z
-    _calc_g_zs(g_z,c_i,g_zs,LAMBDA_0,LAMBDA_1,layers,segments)
+    _calc_g_zs(g_z,c_i,g_zs)
 
     return g_zs
 
 if PYONLY:
-    def _calc_g_zs(g_z,c_i,g_zs,LAMBDA_0,LAMBDA_1,layers,segments):
+    def _calc_g_zs(g_z,c_i,g_zs):
         pg_zs = g_zs[:,0]
         segment_iterator = enumerate(c_i[::-1])
         next(segment_iterator)
         for r,c in segment_iterator:
             g_zs[:,r] = pg_zs = (correlate(pg_zs,LAMBDA_ARRAY,1) + c) * g_z
 
-    def _calc_g_zs_uniform(g_z,g_zs,LAMBDA_0,LAMBDA_1,layers,segments):
+    def _calc_g_zs_uniform(g_z,g_zs):
+        segments = g_zs.shape[1]
         pg_zs = g_zs[:,0]
         for r in range(1,segments):
             g_zs[:,r] = pg_zs = correlate(pg_zs,LAMBDA_ARRAY,1) * g_z
 
-if JIT:
+elif JIT:
     def fastsum(g_zs,axis=0):
         layers, segments = g_zs.shape
         output = np.zeros(segments)
-        _fastsum(g_zs,output,layers,segments)
+        _fastsum(g_zs,output)
         return output
 
-    @njit('void(f8[:,:],f8[:],i4,i4)')
-    def _fastsum(g_zs,output,layers,segments):
+    @njit('void(f8[:,:],f8[:])')
+    def _fastsum(g_zs,output):
+        layers, segments = g_zs.shape
         for s in range(segments):
             for z in range(layers):
                 output[s]+=g_zs[z,s]
 
-    def calc_phi_z(g_zs,g_zs_ngts,g_z,layers,segments):
-        output = np.zeros((layers))
-        _calc_phi_z(g_zs,g_zs_ngts,output,layers,segments)
+    def calc_phi_z(g_zs,g_zs_ngts,g_z):
+        output = np.zeros_like(g_z)
+        _calc_phi_z(g_zs,g_zs_ngts,output)
         output /= g_z
         return output
 
-    @njit('void(f8[:,:],f8[:,:],f8[:],i4,i4)')
-    def _calc_phi_z(g_zs,g_zs_ngts,output,layers,segments):
+    @njit('void(f8[:,:],f8[:,:],f8[:])')
+    def _calc_phi_z(g_zs,g_zs_ngts,output):
+        layers, segments = g_zs.shape
         for s in range(segments):
             for z in range(layers):
                 if g_zs[z,s] and g_zs_ngts[z,segments-s-1]: # Prevent NaNs
                     output[z]+=g_zs[z,s]*g_zs_ngts[z,segments-s-1]
 
-    @njit('void(f8[:],f8[:],f8[:,:],f8,f8,i4,i4)')
-    def _calc_g_zs(g_z,c_i,g_zs,LAMBDA_0,LAMBDA_1,layers,segments):
+    @njit('void(f8[:],f8[:],f8[:,:])')
+    def _calc_g_zs(g_z,c_i,g_zs):
+        layers, segments = g_zs.shape
         for r in range(1,segments):
             c = c_i[segments-r-1]
             g_zs[0,r] = (g_zs[0,r-1]*LAMBDA_0
@@ -594,8 +592,9 @@ if JIT:
                               + g_zs[layers-2,r-1]*LAMBDA_1
                               + c) * g_z[layers-1]
 
-    @njit('void(f8[:],f8[:,:],f8,f8,i4,i4)')
-    def _calc_g_zs_uniform(g_z,g_zs,LAMBDA_0,LAMBDA_1,layers,segments):
+    @njit('void(f8[:],f8[:,:])')
+    def _calc_g_zs_uniform(g_z,g_zs):
+        layers, segments = g_zs.shape
         for r in range(1,segments):
             g_zs[0,r] = (g_zs[0,r-1]*LAMBDA_0
                          + g_zs[1,r-1]*LAMBDA_1
@@ -608,3 +607,10 @@ if JIT:
             g_zs[layers-1,r]=(g_zs[layers-1,r-1]*LAMBDA_0
                               + g_zs[layers-2,r-1]*LAMBDA_1
                               ) * g_z[layers-1]
+
+else:
+    def _calc_g_zs(g_z,c_i,g_zs):
+        return _calc_g_zs_cex(g_z,c_i,g_zs,LAMBDA_0,LAMBDA_1)
+
+    def _calc_g_zs_uniform(g_z,g_zs):
+        return _calc_g_zs_uniform_cex(g_z,g_zs,LAMBDA_0,LAMBDA_1)
