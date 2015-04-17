@@ -48,11 +48,8 @@ except ImportError:
 # otherwise a slice LAMBDA_ARRAY[::-1] is necessary
 from numpy.core.multiarray import correlate
 
-# Faster version of numpy.sum for ndarray only
-from numpy.core import add
-addred = add.reduce
 if not JIT:
-    fastsum = addred
+    fastsum = np.sum
 
 # Precalculate some global constants
 LAMBDA_1 = np.float64(1.0)/6.0 #always assume cubic lattice (1/6) for now
@@ -135,7 +132,7 @@ def SCFcache(chi,chi_s,pdi,sigma,phi_b,segments,disp=False,cache=_SCFcache_dict)
 
     # Calculate distances to all cached parameters
     deltas = p_array - cp_array # Parameter space displacement vectors
-    closest_index = addred(deltas*deltas,axis=1).argmin()
+    closest_index = np.sum(deltas*deltas,axis=1).argmin()
 
     # Organize closest point data for later use
     closest_cp = cached_parameters[closest_index]
@@ -287,7 +284,7 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,phi_b=0,segments=None,
         if disp:
             print('lattice size:', len(phi))
 
-        layers_near_phi_b = addred(fabs(phi - phi_b) < tol)
+        layers_near_phi_b = np.sum(fabs(phi - phi_b) < tol)
 
         lattice_too_small = layers_near_phi_b < MINBULK
         if lattice_too_small:
@@ -423,7 +420,7 @@ def SCFeqns(phi_z, chi, chi_s, sigma, navgsegments, p_i,
         return u
 
     # normalize g_z for numerical stability
-    uavg = addred(u)/layers
+    uavg = np.sum(u)/layers
     g_z_norm = g_z*exp(uavg)
 
     # calculate weighting factors, normalization constants, and density fields
@@ -432,7 +429,7 @@ def SCFeqns(phi_z, chi, chi_s, sigma, navgsegments, p_i,
     if sigma:
         g_zs_ta_norm = calc_g_zs(g_z_norm,-1,layers,cutoff)
         if uniform:
-            c_i_ta_norm = sigma/addred(g_zs_ta_norm[:,-1])
+            c_i_ta_norm = sigma/np.sum(g_zs_ta_norm[:,-1])
         else:
             c_i_ta_norm = sigma*p_i/fastsum(g_zs_ta_norm,axis=0)
         g_zs_ta_ngts_norm = calc_g_zs(g_z_norm,c_i_ta_norm,layers,cutoff)
@@ -489,7 +486,7 @@ def calc_phi_z(g_zs,g_zs_ngts,g_z,layers,segments):
     prod = g_zs*np.fliplr(g_zs_ngts)
     prod[np.isnan(prod)]=0
 #    prod=np.nan_to_num(prod)
-    return addred(prod,axis=1)/g_z
+    return np.sum(prod,axis=1)/g_z
 
 def calc_g_zs(g_z,c_i,layers,segments):
     # initialize
