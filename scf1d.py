@@ -411,22 +411,14 @@ def SCFeqns(phi_z, chi, chi_s, sigma, navgsegments, p_i,
     # let the solver go negative if it wants
     phi_z = fabs(phi_z)
 
-    # attempts to try fields with values greater than one are penalized
-    toomuch = phi_z>.99999
-    if toomuch.any():
-        penalty = np.where(toomuch,1e5*(phi_z-.99999),0)
-        phi_z[toomuch] = .99999
-    else:
-        penalty = 0.0
-
     layers = phi_z.size
     cutoff = p_i.size
     uniform = cutoff == round(navgsegments) # if uniform, we can take shortcuts!
 
     # calculate new g_z (Boltzmann weighting factors)
     g_z = calc_g_z(phi_z, chi, chi_s, phi_b)
-
     u = -log(g_z)
+
     if dump_u:
         return u
 
@@ -475,7 +467,6 @@ def SCFeqns(phi_z, chi, chi_s, sigma, navgsegments, p_i,
     phi_z_new = phi_z_ta + phi_z_free
 
     eps_z = phi_z - phi_z_new
-    eps_z += penalty*np.sign(eps_z)
 
     return eps_z
 

@@ -364,15 +364,6 @@ def SCFeqns_test():
     result = SCFeqns(phi_z,chi,chi_s,sigma,navgsegments,p_i)
     assert np.allclose(result, data, atol=1e-14)
 
-    # check that penalty penalizes
-    phi_z[0]=.999
-    result = SCFeqns(phi_z,chi,chi_s,sigma,navgsegments,p_i)
-    below = np.linalg.norm(result,np.inf)
-    phi_z[0] = 1.0
-    result = SCFeqns(phi_z,chi,chi_s,sigma,navgsegments,p_i)
-    above = np.linalg.norm(result,np.inf)
-    assert above > (below + 1e5*(phi_z[0]-.99999))
-
     #TODO: check float overflow handling
 
 
