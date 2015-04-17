@@ -551,6 +551,16 @@ def SCFprofile_test():
     assert np.allclose(result, data, atol=1e-14)
 
 
+def benchmark():
+    from time import time
+    from collections import OrderedDict
+    start=time()
+    cache=OrderedDict()
+    SCFcache(0,0,1,.1,0,160.52,0,cache)
+    SCFcache(0,0,1.75,.1,0,360.52,0,cache)
+    print('Benchmark time:', time()-start, 'seconds.')
+
+
 def main():
     from time import time
     start=time()
@@ -565,18 +575,8 @@ def main():
     SCFprofile_test()
     stop=time()
     print('All tests passed in {:.3g} seconds!'.format(stop-start))
-
-
-def benchmark():
-    from time import time
-    from collections import OrderedDict
-    start=time()
-    cache=OrderedDict()
-    SCFcache(0,0,1,.1,0,160.52,0,cache)
-    SCFcache(0,0,1.75,.1,0,360.52,0,cache)
-    print('Benchmark time:', time()-start, 'seconds.')
+    benchmark()
 
 
 if __name__ == '__main__':
-#    main()
-    benchmark()
+    main()
