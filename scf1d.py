@@ -409,8 +409,8 @@ def SCFeqns(phi_z, chi, chi_s, sigma, navgsegments, p_i,
     phi_z = fabs(phi_z)
 
     layers = phi_z.size
-    cutoff = p_i.size
-    uniform = cutoff == round(navgsegments) # if uniform, we can take shortcuts!
+    segments = p_i.size
+    uniform = segments == round(navgsegments) # if uniform, we can take shortcuts!
 
     # calculate new g_z (Boltzmann weighting factors)
     g_z = calc_g_z(phi_z, chi, chi_s, phi_b)
@@ -427,11 +427,11 @@ def SCFeqns(phi_z, chi, chi_s, sigma, navgsegments, p_i,
 
     # for terminally attached chains
     if sigma:
-        g_zs_ta_norm = calc_g_zs_ta(g_z_norm,cutoff)
+        g_zs_ta_norm = calc_g_zs_ta(g_z_norm,segments)
 
         if uniform:
             c_i_ta_norm = sigma/np.sum(g_zs_ta_norm[:,-1])
-            g_zs_ta_ngts_norm = calc_g_zs_ngts_u(g_z_norm,c_i_ta_norm,cutoff)
+            g_zs_ta_ngts_norm = calc_g_zs_ngts_u(g_z_norm,c_i_ta_norm,segments)
         else:
             c_i_ta_norm = sigma*p_i/fastsum(g_zs_ta_norm,axis=0)
             g_zs_ta_ngts_norm = calc_g_zs_ngts(g_z_norm,c_i_ta_norm)
@@ -445,16 +445,16 @@ def SCFeqns(phi_z, chi, chi_s, sigma, navgsegments, p_i,
 
     # for free chains
     if phi_b:
-        g_zs_free_norm = calc_g_zs_free(g_z_norm,cutoff)
+        g_zs_free_norm = calc_g_zs_free(g_z_norm,segments)
 
         if uniform:
-            r_i = cutoff
+            r_i = segments
             c_free = phi_b/r_i
             normalizer = exp(-uavg*r_i)
             c_free_norm = c_free*normalizer
-            g_zs_free_ngts_norm = calc_g_zs_ngts_u(g_z_norm,c_free_norm,cutoff)
+            g_zs_free_ngts_norm = calc_g_zs_ngts_u(g_z_norm,c_free_norm,segments)
         else:
-            r_i = np.arange(1,cutoff+1)
+            r_i = np.arange(1,segments+1)
             c_i_free = phi_b*p_i/r_i
             normalizer = exp(-uavg*r_i)
             c_i_free_norm = c_i_free*normalizer
