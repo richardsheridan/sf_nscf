@@ -13,8 +13,7 @@ from __future__ import division, print_function
 import numpy as np
 
 from scf1d import (SCFprofile, SCFcache, SCFsolve, SCFeqns, SZdist,
-                   calc_g_zs_ta, calc_g_zs_ngts_u, calc_g_zs_ngts,
-                   calc_g_zs_free, NoConvergence)
+                   Propagator, NoConvergence)
 
 g_zs_data=np.array((
    ( 0.90000000,  0.67833333,  0.53457407,  0.43538321,  0.36346252,
@@ -134,7 +133,8 @@ def calc_g_zs_ta_test():
     layers=10
     segments=20
     g_z = np.linspace(.9,1.1,layers)
-    assert np.allclose(calc_g_zs_ta(g_z,segments), g_zs_ta_data, atol=1e-14)
+    g_zs = Propagator(g_z,segments)
+    assert np.allclose(g_zs.ta(), g_zs_ta_data, atol=1e-14)
 
 
 def calc_g_zs_ngts_u_test():
@@ -142,7 +142,8 @@ def calc_g_zs_ngts_u_test():
     segments=20
     g_z = np.linspace(.9,1.1,layers)
     c = 1.0
-    assert np.allclose(calc_g_zs_ngts_u(g_z,c,segments), g_zs_data, atol=1e-14)
+    g_zs = Propagator(g_z,segments)
+    assert np.allclose(g_zs.ngts_u(c), g_zs_data, atol=1e-14)
 
 def calc_g_zs_ngts_test():
     layers=10
@@ -150,13 +151,15 @@ def calc_g_zs_ngts_test():
     g_z = np.linspace(.9,1.1,layers)
     c_i = np.zeros(segments)
     c_i[-1]= 1.0
-    assert np.allclose(calc_g_zs_ngts(g_z,c_i), g_zs_data, atol=1e-14)
+    g_zs = Propagator(g_z,segments)
+    assert np.allclose(g_zs.ngts(c_i), g_zs_data, atol=1e-14)
 
 def calc_g_zs_free_test():
     layers=10
     segments=20
     g_z = np.linspace(.9,1.1,layers)
-    assert np.allclose(calc_g_zs_free(g_z,segments), g_zs_data, atol=1e-14)
+    g_zs = Propagator(g_z,segments)
+    assert np.allclose(g_zs.free(), g_zs_data, atol=1e-14)
 
 
 def SZdist_test():
