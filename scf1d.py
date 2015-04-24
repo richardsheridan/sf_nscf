@@ -182,7 +182,10 @@ def SCFcache(chi,chi_s,pdi,sigma,phi_b,segments,disp=False,cache=_SCFcache_dict)
         try:
             phi = SCFsolve(p_tup[0], p_tup[1]/3, p_tup[2]+1, p_tup[3], p_tup[4],
                            p_tup[5]*500, disp=disp, phi0=phi)
-        except (NoConvergence, ValueError):
+        except (NoConvergence, ValueError) as e:
+            if isinstance(e, ValueError):
+                if str(e) != "array must not contain infs or NaNs":
+                    raise
             if disp: print('Step failed')
             flag = True # Reset this so we don't quit if step=1.0 fails
             dstep *= .5
