@@ -284,15 +284,29 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,phi_b=0,segments=None,
         if disp:
             print('lattice size:', len(phi))
 
-        layers_near_phi_b = np.sum(fabs(phi - phi_b) < tol)
+        phi_deviation = fabs(phi - phi_b)
+        layers_near_phi_b = phi_deviation < tol
+        nbulk = np.sum(layers_near_phi_b)
+        lattice_too_small = nbulk < MINBULK
 
-        lattice_too_small = layers_near_phi_b < MINBULK
         if lattice_too_small:
             # if there aren't enough layers_near_phi_b, grow the lattice 20%
-            newlayers = max(1,round(len(phi0)*0.2))
+            newlayers = max(1, round(len(phi0)*0.2))
             if disp: print('Growing undersized lattice by', newlayers)
-            phi0 = hstack((phi[:-5],np.linspace(phi[-6],phi[-5],num=newlayers),
-                           phi[-5:]))
+            if nbulk:
+                i = np.diff(layers_near_phi_b).nonzero()[0].max()
+            else:
+                i = phi_deviation.argmin()
+            phi0 = hstack((phi[:i],
+                           np.linspace(phi[i-1], phi[i], num=newlayers),
+                           phi[i:],
+                           ))
+
+    if nbulk > 2*MINBULK:
+        chop_end = np.diff(layers_near_phi_b).nonzero()[0].max()
+        chop_start = chop_end - MINBULK
+        i = np.arange(len(phi))
+        phi = phi[(i <= chop_start) | (i > chop_end)]
 
     if disp:
         print("SCFsolve execution time:", round(time()-starttime,3), "s")
