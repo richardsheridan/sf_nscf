@@ -27,6 +27,7 @@ from time import time
 from collections import OrderedDict
 from numpy import exp, log, sqrt, hstack, fabs
 from scipy.special import gammaln
+from scipy.optimize import root
 
 # compatability for systems lacking compiler capability
 PYONLY = JIT = False
@@ -217,8 +218,6 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,phi_b=0,segments=None,
     than the other scipy.optimize alternatives by quite a lot.
     """
 
-    from scipy.optimize import root
-
     if sigma >= 1:
         raise ValueError('Chains that short cannot be squeezed that high')
 
@@ -239,9 +238,9 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,phi_b=0,segments=None,
     jac_solve_method = 'gmres'
     lattice_too_small = True
 
-    # We tolerate up to 10 ppm deviation from bulk phi
+    # We tolerate up to 1 ppm deviation from bulk phi
     # when counting layers_near_phi_b
-    tol = 1e-5
+    tol = 1e-6
 
     # callback to detect an undersized lattice early
     callback = None # TODO: no good strategy yet ;_;
@@ -366,7 +365,7 @@ def SZdist(pdi,nn,cache=_SZdist_dict):
         p_ni[-1] = 1.0
     else:
         p_ni = hstack(p_ni_list)
-
+        p_ni /= p_ni.sum()
     cache[args]=p_ni
 
     if len(cache)>9000:
