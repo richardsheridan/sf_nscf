@@ -106,8 +106,7 @@ def SCFsqueeze(chi,chi_s,pdi,sigma,phi_b,segments,layers,disp=False):
 
     phi = SCFcache(chi,chi_s,pdi,sigma,phi_b,segments,disp)
     l = len(phi)
-    sign = layers - l
-    sign = sign//abs(sign)
+    squeezing = layers - l < 0
 
     p_i = SZdist(pdi,segments)
     jac_solve_method = 'gmres'
@@ -115,8 +114,11 @@ def SCFsqueeze(chi,chi_s,pdi,sigma,phi_b,segments,layers,disp=False):
         return SCFeqns(phi,chi,chi_s,sigma,segments,p_i,phi_b)
 
     while layers - l:
-        l += sign
-        phi = phi[:-1]
+        if squeezing:
+            phi = np.delete(phi, -1)
+        else:
+            phi = np.append(phi, phi[-1])
+        l = len(phi)
         phi = fabs(newton_krylov(curried,
                                  phi,
                                  verbose=bool(disp),
