@@ -98,6 +98,35 @@ def SCFprofile(z, chi=None, chi_s=None, h_dry=None, l_lat=1, mn=None,
 
     return phi
 
+def SCFsqueeze(chi,chi_s,pdi,sigma,phi_b,segments,layers,disp=False):
+    """ Return a self consistent field within a specified number of layers.
+
+
+    """
+
+    phi = SCFcache(chi,chi_s,pdi,sigma,phi_b,segments,disp)
+    l = len(phi)
+    sign = layers - l
+    sign = sign//abs(sign)
+
+    p_i = SZdist(pdi,segments)
+    jac_solve_method = 'gmres'
+    def curried(phi):
+        return SCFeqns(phi,chi,chi_s,sigma,segments,p_i,phi_b)
+
+    while layers - l:
+        l += sign
+        phi = phi[:-1]
+        phi = fabs(newton_krylov(curried,
+                                 phi,
+                                 verbose=bool(disp),
+                                 maxiter=30,
+                                 method=jac_solve_method,
+                                 ))
+
+    return phi
+
+
 _SCFcache_dict = OrderedDict()
 def SCFcache(chi,chi_s,pdi,sigma,phi_b,segments,disp=False,cache=_SCFcache_dict):
     """Return a memoized SCF result by walking from a previous solution.
