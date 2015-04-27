@@ -27,7 +27,7 @@ from time import time
 from collections import OrderedDict
 from numpy import exp, log, sqrt, hstack, fabs
 from scipy.special import gammaln
-from scipy.optimize import root
+from scipy.optimize.nonlin import newton_krylov, NoConvergence
 
 # compatability for systems lacking compiler capability
 PYONLY = JIT = False
@@ -214,8 +214,8 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,phi_b=0,segments=None,
     This function finds a solution for the equations where the lattice size
     is sufficiently large.
 
-    The Newton-Krylov solver really makes this one. Krylov+gmres was faster
-    than the other scipy.optimize alternatives by quite a lot.
+    The Newton-Krylov solver really makes this one. With gmres, it was faster
+    than the other solvers by quite a lot.
     """
 
     if sigma >= 1:
@@ -242,24 +242,19 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,phi_b=0,segments=None,
     # when counting layers_near_phi_b
     tol = 1e-6
 
-    # callback to detect an undersized lattice early
-    callback = None # TODO: no good strategy yet ;_;
+    def curried(phi):
+        return SCFeqns(phi,chi,chi_s,sigma,segments,p_i,phi_b)
 
     while lattice_too_small:
         if disp: print("Solving SCF equations")
 
         try:
-            result = root(SCFeqns,
-                          phi0,
-                          args=(chi,chi_s,sigma,segments,p_i,phi_b),
-                          method='Krylov',
-                          callback=callback,
-                          options={'disp':bool(disp),'maxiter':maxiter,
-                                  'jac_options':{'method':jac_solve_method}})
-        except ShortCircuitRoot as e:
-            # dumping out to resize since we've exceeded resize tol by 4x
-            phi = fabs(e.x)
-            if disp: print(e.value)
+            phi = fabs(newton_krylov(curried,
+                                     phi0,
+                                     verbose=bool(disp),
+                                     maxiter=maxiter,
+                                     method=jac_solve_method,
+                                     ))
         except RuntimeError as e:
             if str(e) == 'gmres is not re-entrant':
                 # Threads are racing to use gmres. Lose the race and use
@@ -268,17 +263,6 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,phi_b=0,segments=None,
                 continue
             else:
                 raise
-        else: # Belongs to try, executes if no exception is raised
-            if disp:
-                print('Solver exit code:',result.status,result.message)
-
-            if result.success:
-                # carry on to resize logic.
-                phi = fabs(result.x)
-            elif result.status == 2:
-                raise NoConvergence
-            else:
-                raise AssertionError # was: assert result.status in {1,2}
 
         if disp:
             print('lattice size:', len(phi))
@@ -383,33 +367,6 @@ def default_guess(segments=100,sigma=.5,phi_b=.1,chi=0,chi_s=0):
     default_phi0 = np.linspace(ss,phi_b,num=default_layers)
     return default_phi0
 
-class ShortCircuitRoot(Exception):
-    """ Special error to stop root() before a solution is found.
-
-    """
-    def __init__(self, value,x):
-         self.value = value
-         self.x = x
-    def __str__(self):
-         return repr(self.value)
-
-#class NoConvergence(Exception):
-#    """ Special exception to stop SCFsolve if root() is not converging
-#
-#    """
-#    pass
-from scipy.optimize.nonlin import NoConvergence
-
-def short_circuit_callback(x,tol,phi_b=0):
-    """ Special callback to stop root() before solution is found.
-
-    This kills root if the tolerances are exceeded by 4 times the tolerances
-    of the lattice resizing loop. This seems to work well empirically to
-    restart the solver when necessary without cutting out of otherwise
-    reasonable solver trajectories.
-    """
-    if abs(x[-1]) > 4*tol:
-        raise ShortCircuitRoot('Stopping, lattice too small!',x)
 
 def SCFeqns(phi_z, chi, chi_s, sigma, navgsegments, p_i,
             phi_b=0, dump_u=False):
