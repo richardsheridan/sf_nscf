@@ -25,7 +25,7 @@ Profile\ [#Cosgrove]_\ [#deVos]_\ [#Sheridan]_
 import numpy as np
 from time import time
 from collections import OrderedDict
-from numpy import exp, log, sqrt, hstack, fabs
+from numpy import exp, log, sqrt, fabs
 from scipy.special import gammaln
 from scipy.optimize.nonlin import newton_krylov, NoConvergence
 
@@ -309,10 +309,7 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,phi_b=0,segments=None,
                 i = np.diff(layers_near_phi_b).nonzero()[0].max()
             else:
                 i = phi_deviation.argmin()
-            phi0 = hstack((phi[:i],
-                           np.linspace(phi[i-1], phi[i], num=newlayers),
-                           phi[i:],
-                           ))
+            phi0 = np.insert(phi,i,np.linspace(phi[i-1], phi[i], num=newlayers))
 
     if nbulk > 2*MINBULK:
         chop_end = np.diff(layers_near_phi_b).nonzero()[0].max()
@@ -377,7 +374,7 @@ def SZdist(pdi,nn,cache=_SZdist_dict):
         p_ni = np.zeros(round(nn))
         p_ni[-1] = 1.0
     else:
-        p_ni = hstack(p_ni_list)
+        p_ni = np.concatenate(p_ni_list)
         p_ni /= p_ni.sum()
     cache[args]=p_ni
 
