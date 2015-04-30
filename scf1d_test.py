@@ -12,8 +12,8 @@ haven't changed since that version.
 from __future__ import division, print_function
 import numpy as np
 
-from scf1d import (SCFprofile, SCFcache, SCFsolve, SCFeqns, SZdist,
-                   Propagator, NoConvergence)
+from scf1d import (SCFprofile, SCFsqueeze, SCFcache, SCFsolve, SCFeqns, SZdist,
+                   Propagator, NoConvergence, _SCFcache_dict)
 
 g_zs_data=np.array((
    ( 0.90000000,  0.67833333,  0.53457407,  0.43538321,  0.36346252,
@@ -436,6 +436,7 @@ def SCFsolve_test():
 
 
 def SCFcache_test():
+    _SCFcache_dict.clear()
 
     # check that the hard solution can be found by walking
     chi = 1
@@ -444,8 +445,6 @@ def SCFcache_test():
     phi_b  = 0
     navgsegments = 95.5
     pdi = 1.2
-    from collections import OrderedDict
-    cache = OrderedDict()
     data = np.array([  7.68624312e-01,   7.38405144e-01,   7.24408672e-01,
          7.18856081e-01,   7.13806986e-01,   7.08723539e-01,
          7.03594316e-01,   6.98484957e-01,   6.93374956e-01,
@@ -459,26 +458,62 @@ def SCFcache_test():
          3.36252029e-13,   1.02350919e-13,   3.45522596e-12,
          1.27740977e-11,   8.54541792e-12,   4.00587288e-12,
          1.12745338e-12])
-    result = SCFcache(chi,chi_s,pdi,sigma,phi_b,navgsegments,False,cache)
+    result = SCFcache(chi,chi_s,pdi,sigma,phi_b,navgsegments,False)
     assert np.allclose(result, data, atol=1e-14)
 
     # check that the cache is holding items
-    assert cache
+    assert _SCFcache_dict
 
     # check that cache is reordered on hits and misses
-    cache_keys = list(cache)
+    cache_keys = list(_SCFcache_dict)
     oldest_key = cache_keys[0]
     newest_key = cache_keys[-1]
-    SCFcache(0,0,1,.1,.1,50,False,cache)
+    SCFcache(0,0,1,.1,.1,50,False)
 
-    assert oldest_key == list(cache)[-1]
-    SCFcache(chi,chi_s,pdi+.1,sigma,phi_b,navgsegments,False,cache)
-    assert newest_key == list(cache)[-2]
+    assert oldest_key == list(_SCFcache_dict)[-1]
+    SCFcache(chi,chi_s,pdi+.1,sigma,phi_b,navgsegments,False)
+    assert newest_key == list(_SCFcache_dict)[-2]
 
     # check high pdi solutions converge without too many layers
 
-    assert len(SCFcache(.47,0,1.75,.1,.1,100,0,cache)) < 150
+    assert len(SCFcache(.47,0,1.75,.1,.1,100,0)) < 150
 
+
+def SCFsqueeze_test():
+    _SCFcache_dict.clear()
+
+    # squeeze the easy solution substantially
+    chi = 0.1
+    chi_s = 0.05
+    sigma = .1
+    phi_b = 0
+    navgsegments = 95.5
+    pdi = 1.2
+    layers = 65
+    data = np.array([  3.65558082e-01,   3.97533333e-01,   3.95179978e-01,
+         3.88757819e-01,   3.80787284e-01,   3.72130794e-01,
+         3.63092959e-01,   3.53800165e-01,   3.44316370e-01,
+         3.34681240e-01,   3.24923297e-01,   3.15065003e-01,
+         3.05125186e-01,   2.95120440e-01,   2.85066025e-01,
+         2.74976440e-01,   2.64865786e-01,   2.54747977e-01,
+         2.44636853e-01,   2.34546245e-01,   2.24489996e-01,
+         2.14481972e-01,   2.04536066e-01,   1.94666194e-01,
+         1.84886295e-01,   1.75210336e-01,   1.65652309e-01,
+         1.56226235e-01,   1.46946170e-01,   1.37826200e-01,
+         1.28880447e-01,   1.20123068e-01,   1.11568257e-01,
+         1.03230243e-01,   9.51233029e-02,   8.72617647e-02,
+         7.96600346e-02,   7.23326302e-02,   6.52942345e-02,
+         5.85597723e-02,   5.21445036e-02,   4.60641230e-02,
+         4.03348257e-02,   3.49732711e-02,   2.99963349e-02,
+         2.54205052e-02,   2.12607873e-02,   1.75290516e-02,
+         1.42319226e-02,   1.13685232e-02,   8.92858342e-03,
+         6.89147965e-03,   5.22661400e-03,   3.89520205e-03,
+         2.85314433e-03,   2.05437856e-03,   1.45405351e-03,
+         1.01101862e-03,   6.89388676e-04,   4.59200254e-04,
+         2.96354450e-04,   1.82124633e-04,   1.02535872e-04,
+         4.79564181e-05,   1.33585282e-05])
+    result = SCFsqueeze(chi,chi_s,pdi,sigma,phi_b,navgsegments,layers)
+    assert np.allclose(result, data)
 
 long_profile = np.array([ 0.50131233,  0.48794593,  0.47457953,  0.46158499,  0.45403167,
         0.44647835,  0.43948169,  0.43627941,  0.43307714,  0.429997  ,
@@ -553,6 +588,7 @@ long_profile = np.array([ 0.50131233,  0.48794593,  0.47457953,  0.46158499,  0.
 
 
 def SCFprofile_test():
+    _SCFcache_dict.clear()
 
     # basically checking that numpy interp hasn't changed
     data = long_profile.copy()
@@ -582,6 +618,7 @@ def main():
     SCFeqns_test()
     SCFsolve_test()
     SCFcache_test()
+    SCFsqueeze_test()
     SCFprofile_test()
     stop=time()
     print('All tests passed in {:.3g} seconds!'.format(stop-start))
