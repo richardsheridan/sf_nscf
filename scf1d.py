@@ -393,6 +393,55 @@ def default_guess(segments=100,sigma=.5,phi_b=.1,chi=0,chi_s=0):
     default_phi0 = np.linspace(ss,phi_b,num=default_layers)
     return default_phi0
 
+def SCFeqns_multi(phi_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji):
+    """ add a dimension for species to uniform, terminally attached chains
+        use it to add "air"/"void" monomeric species
+
+        j = 0 -> surface
+        j = 1 -> solvent
+        j = 2 -> polymer
+        j = 3 -> air
+
+        define surface concentration internally
+        use last species to relieve the space-filling constraint
+        so pass in a phi_jz with size (J-2,Z)
+    """
+
+    phi_jz = np.vstack((np.zeros_like(phi_jz[0]),
+                        phi_jz,
+                        1-np.sum(phi_jz, axis=0)))
+
+    if phi_b_j.ndim == 1:
+        phi_b_j = phi_b_j[:, np.newaxis]
+
+    monomers = n_avg_j == 1
+    u_prime_z = np.sum(log(phi_jz[monomers]/phi_b_j[monomers]), axis=0)
+
+    u_int_jz = np.dot(chi_jk,phi_jz_avg(phi_jz)-phi_b_j)
+
+    u_jz = u_prime_z + u_int_jz
+
+
+    return u_jz
+
+
+def phi_jz_avg(phi_jz):
+    """ Convolve transition matrix with density field.
+
+        For now, treat ends with special cases, add j[0] to phi[0], j[J] to phi[Z]
+        later, pass in phi_b_below_j, phi_b_above_j and add to each correlation
+    """
+    types, layers = phi_jz.shape
+    avg = np.empty_like(phi_jz)
+
+    for j, phi_z in enumerate(phi_jz):
+        avg[j] = correlate(phi_z, LAMBDA_ARRAY, 1)
+
+    avg[0,0] += LAMBDA_1
+    avg[types-1,layers-1] += LAMBDA_1
+
+    return avg
+
 
 def SCFeqns(phi_z, chi, chi_s, sigma, navgsegments, p_i,
             phi_b=0, dump_u=False):
@@ -623,3 +672,21 @@ class Propagator():
         @staticmethod
         def _calc_g_zs_uniform(g_z, g_zs):
             return _calc_g_zs_uniform_cex(g_z, g_zs, LAMBDA_0, LAMBDA_1)
+
+
+#phi_jz = np.array([
+##                    [0,0,0,0,0,0],
+#                    [.6,.6,.6,.6,.6,.6],
+#                    [.4,.4,.4,.4,.4,.4],
+##                    [0,0,0,0,0,0],
+#                    ])
+#chi_jk = np.array([[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0.0]])
+#sigma_j=None
+#phi_b_j = np.zeros(4)
+#phi_b_j[3] = 1
+#n_avg_j = np.ones(4)
+#n_avg_j[2] = 100
+#p_ji = None
+##avg = phi_jz_avg(phi_jz)
+##print(avg)
+#print(SCFeqns_multi(phi_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji))
