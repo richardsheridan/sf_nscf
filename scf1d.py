@@ -393,7 +393,7 @@ def default_guess(segments=100,sigma=.5,phi_b=.1,chi=0,chi_s=0):
     default_phi0 = np.linspace(ss,phi_b,num=default_layers)
     return default_phi0
 
-def SCFeqns_multi(phi_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji):
+def SCFeqns_multi(phi_jz, chi_jk, sigma_j, phi_b_j, n_avg_j):
     """ add a dimension for species to uniform, terminally attached chains
         use it to add "air"/"void" monomeric species
 
@@ -405,28 +405,100 @@ def SCFeqns_multi(phi_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji):
         define surface concentration internally
         use last species to relieve the space-filling constraint
         so pass in a phi_jz with size (J-2,Z)
-    """
 
+        just uniform for now, for sanity
+    """
+    phi_jz = fabs(phi_jz)
     phi_jz = np.vstack((np.zeros_like(phi_jz[0]),
                         phi_jz,
                         1-np.sum(phi_jz, axis=0)))
 
-    if phi_b_j.ndim == 1:
-        phi_b_j = phi_b_j[:, np.newaxis]
-
     monomers = n_avg_j == 1
-    u_prime_z = np.sum(log(phi_jz[monomers]/phi_b_j[monomers]), axis=0)
 
+    phi_b_j = np.atleast_2d(phi_b_j)
+
+    u_prime_z = np.sum(log(phi_jz[monomers]/phi_b_j[monomers]), axis=0)
     u_int_jz = np.dot(chi_jk,phi_jz_avg(phi_jz)-phi_b_j)
 
+    phi_b_j = np.squeeze(phi_b_j)
+
     u_jz = u_prime_z + u_int_jz
+    u_jz_avg = np.mean(u_jz, axis=1, keepdims=True)
 
+    g_jz_norm = exp(-u_jz)
 
-    return u_jz
+    phi_jz_new = np.empty_like(u_jz)
+    for j in np.nonzero(monomers)[0]:
+        phi_jz_new[j] = phi_b_j[j]/exp(u_jz[j])
+
+    for j in np.nonzero(~monomers)[0]:
+        n_avg = segments = n_avg_j[j]
+
+        g_zs_norm = Propagator(g_jz_norm[j], n_avg)
+
+        uniform = 1
+
+        # for terminally attached chains
+        if sigma_j[j]:
+            g_zs_ta_norm = g_zs_norm.ta()
+
+            if uniform:
+                c_i_ta_norm = sigma_j[j]/np.sum(g_zs_ta_norm[:, -1])
+                g_zs_ta_ngts_norm = g_zs_norm.ngts_u(c_i_ta_norm)
+#            else:
+#                c_i_ta_norm = sigma_j[j]*p_ji[j]/fastsum(g_zs_ta_norm, axis=0)
+#                g_zs_ta_ngts_norm = g_zs_norm.ngts(c_i_ta_norm)
+
+            phi_z_ta = calc_phi_z(g_zs_ta_norm,
+                                  g_zs_ta_ngts_norm,
+                                  g_jz_norm[j],
+                                  )
+        else:
+            phi_z_ta = 0
+
+        # for free chains
+        if phi_b_j[j]:
+            g_zs_free_norm = g_zs_norm.free()
+
+            if uniform:
+                r_i = segments
+                c_free = phi_b_j[j]/r_i
+                normalizer = exp(-u_jz_avg[j]*r_i)
+                c_free_norm = c_free*normalizer
+                g_zs_free_ngts_norm = g_zs_norm.ngts_u(c_free_norm)
+#            else:
+#                r_i = np.arange(1, segments+1)
+#                c_i_free = phi_b_j[j]*p_ji[j]/r_i
+#                normalizer = exp(-u_jz_avg[j]*r_i)
+#                c_i_free_norm = c_i_free*normalizer
+#                g_zs_free_ngts_norm = g_zs_norm.ngts(c_i_free_norm)
+
+            phi_z_free = calc_phi_z(g_zs_free_norm,
+                                    g_zs_free_ngts_norm,
+                                    g_jz_norm[j],
+                                    )
+        else:
+            phi_z_free = 0
+
+        phi_jz_new[j] = phi_z_ta + phi_z_free
+
+    u_int_jz = np.dot(chi_jk,phi_jz_avg(phi_jz_new)-phi_b_j)
+    u_prime_jz = u_jz - u_int_jz
+
+    if np.any(monomers):
+        # is this helpful at all?
+        j = np.max(np.nonzero(monomers)[0])
+        u_prime_z = -log(phi_jz_new[j]/phi_b_j[j])
+    else:
+        u_prime_z = np.mean(u_prime_jz)
+
+    eps_jz = (u_prime_jz - u_prime_z)**2 + (1 - 1/np.sum(phi_jz_new, axis=0))**2
+
+    return eps_jz
 
 
 def phi_jz_avg(phi_jz):
-    """ Convolve transition matrix with density field.
+    """ Convolve the transition matrix with the density field.
 
         For now, treat ends with special cases, add j[0] to phi[0], j[J] to phi[Z]
         later, pass in phi_b_below_j, phi_b_above_j and add to each correlation
