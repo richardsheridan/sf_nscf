@@ -49,6 +49,12 @@ except ImportError:
 # otherwise a slice LAMBDA_ARRAY[::-1] is necessary
 from numpy.core.multiarray import correlate
 
+def sumkd(array, axis=None):
+    return np.sum(array, axis=axis, keepdims=True)
+
+def meankd(array, axis=None):
+    return np.mean(array, axis=axis, keepdims=True)
+
 # Precalculate some global constants
 LAMBDA_1 = np.float64(1.0)/6.0 #always assume cubic lattice (1/6) for now
 LAMBDA_0 = 1.0-2.0*LAMBDA_1
@@ -415,87 +421,112 @@ def SCFeqns_multi(phi_jz, chi_jk, sigma_j, phi_b_j, n_avg_j):
 
     monomers = n_avg_j == 1
 
-    phi_b_j = np.atleast_2d(phi_b_j)
+    u_prime_z = log(phi_jz[monomers][-1]/phi_b_j[monomers][-1])
 
-    u_prime_z = np.sum(log(phi_jz[monomers]/phi_b_j[monomers]), axis=0)
-    u_int_jz = np.dot(chi_jk,phi_jz_avg(phi_jz)-phi_b_j)
-
-    phi_b_j = np.squeeze(phi_b_j)
+    u_int_jz = np.dot(chi_jk,phi_jz_avg(phi_jz)-phi_b_j[:,None])
 
     u_jz = u_prime_z + u_int_jz
-    u_jz_avg = np.mean(u_jz, axis=1, keepdims=True)
+    u_jz_avg = meankd(u_jz, axis=1)
 
-    g_jz_norm = exp(-u_jz)
+    g_jz_norm = exp(u_jz_avg-u_jz)
 
     phi_jz_new = np.empty_like(u_jz)
     for j in np.nonzero(monomers)[0]:
         phi_jz_new[j] = phi_b_j[j]/exp(u_jz[j])
 
     for j in np.nonzero(~monomers)[0]:
-        n_avg = segments = n_avg_j[j]
+        phi_jz_new[j] = calc_phi_z(g_jz_norm[j],
+                                   n_avg_j[j],
+                                   sigma_j[j],
+                                   phi_b_j[j],
+                                   u_jz_avg[j],
+#                                   p_ji[j],
+                                   )
 
-        g_zs_norm = Propagator(g_jz_norm[j], n_avg)
-
-        uniform = 1
-
-        # for terminally attached chains
-        if sigma_j[j]:
-            g_zs_ta_norm = g_zs_norm.ta()
-
-            if uniform:
-                c_i_ta_norm = sigma_j[j]/np.sum(g_zs_ta_norm[:, -1])
-                g_zs_ta_ngts_norm = g_zs_norm.ngts_u(c_i_ta_norm)
-#            else:
-#                c_i_ta_norm = sigma_j[j]*p_ji[j]/fastsum(g_zs_ta_norm, axis=0)
-#                g_zs_ta_ngts_norm = g_zs_norm.ngts(c_i_ta_norm)
-
-            phi_z_ta = calc_phi_z(g_zs_ta_norm,
-                                  g_zs_ta_ngts_norm,
-                                  g_jz_norm[j],
-                                  )
-        else:
-            phi_z_ta = 0
-
-        # for free chains
-        if phi_b_j[j]:
-            g_zs_free_norm = g_zs_norm.free()
-
-            if uniform:
-                r_i = segments
-                c_free = phi_b_j[j]/r_i
-                normalizer = exp(-u_jz_avg[j]*r_i)
-                c_free_norm = c_free*normalizer
-                g_zs_free_ngts_norm = g_zs_norm.ngts_u(c_free_norm)
-#            else:
-#                r_i = np.arange(1, segments+1)
-#                c_i_free = phi_b_j[j]*p_ji[j]/r_i
-#                normalizer = exp(-u_jz_avg[j]*r_i)
-#                c_i_free_norm = c_i_free*normalizer
-#                g_zs_free_ngts_norm = g_zs_norm.ngts(c_i_free_norm)
-
-            phi_z_free = calc_phi_z(g_zs_free_norm,
-                                    g_zs_free_ngts_norm,
-                                    g_jz_norm[j],
-                                    )
-        else:
-            phi_z_free = 0
-
-        phi_jz_new[j] = phi_z_ta + phi_z_free
-
-    u_int_jz = np.dot(chi_jk,phi_jz_avg(phi_jz_new)-phi_b_j)
+    u_int_jz = np.dot(chi_jk,phi_jz_avg(phi_jz_new)-phi_b_j[:,None])
     u_prime_jz = u_jz - u_int_jz
 
     if np.any(monomers):
-        # is this helpful at all?
-        j = np.max(np.nonzero(monomers)[0])
-        u_prime_z = -log(phi_jz_new[j]/phi_b_j[j])
+        # TODO: is this helpful at all?
+        u_prime_z = -log(phi_jz_new[monomers][-1]/phi_b_j[monomers][-1])
     else:
-        u_prime_z = np.mean(u_prime_jz)
+        u_prime_z = meankd(u_prime_jz)
 
-    eps_jz = (u_prime_jz - u_prime_z)**2 + (1 - 1/np.sum(phi_jz_new, axis=0))**2
+    eps_jz = (u_prime_jz - u_prime_z)**2 + (1 - 1/sumkd(phi_jz_new, axis=0))**2
 
     return eps_jz
 
+def SCFeqns(phi_z, chi, chi_s, sigma, n_avg, p_i, phi_b=0):
+    """ System of SCF equation for terminally attached polymers.
+
+        Formatted for input to a nonlinear minimizer or solver.
+    """
+
+    # let the solver go negative if it wants
+    phi_z = fabs(phi_z)
+
+    # calculate new g_z (Boltzmann weighting factors)
+    g_z = calc_g_z(phi_z, chi, chi_s, phi_b)
+    u_z = -log(g_z)
+
+    # normalize g_z for numerical stability
+    u_z_avg = np.mean(u_z)
+    g_z_norm = g_z*exp(u_z_avg)
+
+    phi_z_new = calc_phi_z(g_z_norm, n_avg, sigma, phi_b, u_z_avg, p_i)
+
+    eps_z = phi_z - phi_z_new
+
+    return eps_z
+
+def calc_phi_z(g_z, n_avg, sigma, phi_b, u_z_avg=0, p_i=None):
+
+    if p_i is None:
+        segments = n_avg
+        uniform = 1
+    else:
+        segments = p_i.size
+        uniform = segments == round(n_avg)
+
+    g_zs = Propagator(g_z, segments)
+
+    # for terminally attached chains
+    if sigma:
+        g_zs_ta = g_zs.ta()
+
+        if uniform:
+            c_i_ta = sigma/np.sum(g_zs_ta[:, -1])
+            g_zs_ta_ngts = g_zs.ngts_u(c_i_ta)
+        else:
+            c_i_ta = sigma*p_i/fastsum(g_zs_ta, axis=0)
+            g_zs_ta_ngts = g_zs.ngts(c_i_ta)
+
+        phi_z_ta = compose(g_zs_ta, g_zs_ta_ngts, g_z)
+    else:
+        phi_z_ta = 0
+
+    # for free chains
+    if phi_b:
+        g_zs_free = g_zs.free()
+
+        if uniform:
+            r_i = segments
+            c_free = phi_b/r_i
+            normalizer = exp(-u_z_avg*r_i)
+            c_free = c_free*normalizer
+            g_zs_free_ngts = g_zs.ngts_u(c_free)
+        else:
+            r_i = np.arange(1, segments+1)
+            c_i_free = phi_b*p_i/r_i
+            normalizer = exp(-u_z_avg*r_i)
+            c_i_free = c_i_free*normalizer
+            g_zs_free_ngts = g_zs.ngts(c_i_free)
+
+        phi_z_free = compose(g_zs_free, g_zs_free_ngts, g_z)
+    else:
+        phi_z_free = 0
+
+    return phi_z_ta + phi_z_free
 
 def phi_jz_avg(phi_jz):
     """ Convolve the transition matrix with the density field.
@@ -514,83 +545,6 @@ def phi_jz_avg(phi_jz):
 
     return avg
 
-
-def SCFeqns(phi_z, chi, chi_s, sigma, navgsegments, p_i,
-            phi_b=0, dump_u=False):
-    """ System of SCF equation for terminally attached polymers.
-
-        Formatted for input to a nonlinear minimizer or solver.
-    """
-
-    # let the solver go negative if it wants
-    phi_z = fabs(phi_z)
-
-    layers = phi_z.size
-    segments = p_i.size
-    uniform = segments == round(navgsegments) # if uniform, we can take shortcuts!
-
-    # calculate new g_z (Boltzmann weighting factors)
-    g_z = calc_g_z(phi_z, chi, chi_s, phi_b)
-    u = -log(g_z)
-
-    if dump_u:
-        return u
-
-    # normalize g_z for numerical stability
-    uavg = np.sum(u)/layers
-    g_z_norm = g_z*exp(uavg)
-
-    # calculate weighting factors, normalization constants, and density fields
-
-    g_zs_norm = Propagator(g_z_norm, segments)
-
-    # for terminally attached chains
-    if sigma:
-        g_zs_ta_norm = g_zs_norm.ta()
-
-        if uniform:
-            c_i_ta_norm = sigma/np.sum(g_zs_ta_norm[:, -1])
-            g_zs_ta_ngts_norm = g_zs_norm.ngts_u(c_i_ta_norm)
-        else:
-            c_i_ta_norm = sigma*p_i/fastsum(g_zs_ta_norm, axis=0)
-            g_zs_ta_ngts_norm = g_zs_norm.ngts(c_i_ta_norm)
-
-        phi_z_ta = calc_phi_z(g_zs_ta_norm,
-                              g_zs_ta_ngts_norm,
-                              g_z_norm,
-                              )
-    else:
-        phi_z_ta = 0
-
-    # for free chains
-    if phi_b:
-        g_zs_free_norm = g_zs_norm.free()
-
-        if uniform:
-            r_i = segments
-            c_free = phi_b/r_i
-            normalizer = exp(-uavg*r_i)
-            c_free_norm = c_free*normalizer
-            g_zs_free_ngts_norm = g_zs_norm.ngts_u(c_free_norm)
-        else:
-            r_i = np.arange(1, segments+1)
-            c_i_free = phi_b*p_i/r_i
-            normalizer = exp(-uavg*r_i)
-            c_i_free_norm = c_i_free*normalizer
-            g_zs_free_ngts_norm = g_zs_norm.ngts(c_i_free_norm)
-
-        phi_z_free = calc_phi_z(g_zs_free_norm,
-                                g_zs_free_ngts_norm,
-                                g_z_norm,
-                                )
-    else:
-        phi_z_free = 0
-
-    phi_z_new = phi_z_ta + phi_z_free
-
-    eps_z = phi_z - phi_z_new
-
-    return eps_z
 
 def calc_g_z(phi_z, chi, chi_s, phi_b=0):
     layers = phi_z.size
@@ -616,14 +570,14 @@ if JIT:
             for z in range(layers):
                 output[s] += g_zs[z, s]
 
-    def calc_phi_z(g_zs, g_zs_ngts, g_z):
+    def compose(g_zs, g_zs_ngts, g_z):
         output = np.zeros_like(g_z)
-        _calc_phi_z(g_zs, g_zs_ngts, output)
+        _compose(g_zs, g_zs_ngts, output)
         output /= g_z
         return output
 
     @njit('void(f8[:,:],f8[:,:],f8[:])')
-    def _calc_phi_z(g_zs, g_zs_ngts, output):
+    def _compose(g_zs, g_zs_ngts, output):
         layers, segments = g_zs.shape
         for s in range(segments):
             for z in range(layers):
@@ -633,7 +587,7 @@ if JIT:
 else:
     fastsum = np.sum
 
-    def calc_phi_z(g_zs, g_zs_ngts, g_z):
+    def compose(g_zs, g_zs_ngts, g_z):
         prod = g_zs * np.fliplr(g_zs_ngts)
         prod[np.isnan(prod)] = 0
         return np.sum(prod, axis=1) / g_z
@@ -749,16 +703,18 @@ class Propagator():
 #phi_jz = np.array([
 ##                    [0,0,0,0,0,0],
 #                    [.6,.6,.6,.6,.6,.6],
-#                    [.4,.4,.4,.4,.4,.4],
+#                    [.3,.3,.3,.3,.3,.3],
 ##                    [0,0,0,0,0,0],
 #                    ])
 #chi_jk = np.array([[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0.0]])
-#sigma_j=None
+#sigma_j = np.zeros(4)
+#sigma_j[3] = .1
+#sigma_j= [0,0,.1,0]
 #phi_b_j = np.zeros(4)
-#phi_b_j[3] = 1
+#phi_b_j[3] = .1
 #n_avg_j = np.ones(4)
 #n_avg_j[2] = 100
 #p_ji = None
 ##avg = phi_jz_avg(phi_jz)
 ##print(avg)
-#print(SCFeqns_multi(phi_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji))
+#print(SCFeqns_multi(phi_jz, chi_jk, sigma_j, phi_b_j, n_avg_j))
