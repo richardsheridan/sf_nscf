@@ -399,7 +399,7 @@ def default_guess(segments=100,sigma=.5,phi_b=.1,chi=0,chi_s=0):
     default_phi0 = np.linspace(ss,phi_b,num=default_layers)
     return default_phi0
 
-def SCFeqns_multi(phi_jz, chi_jk, sigma_j, phi_b_j, n_avg_j):
+def SCFeqns_multi(u_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji=None, dump_phi=False):
     """ add a dimension for species to uniform, terminally attached chains
         use it to add "air"/"void" monomeric species
 
@@ -409,50 +409,75 @@ def SCFeqns_multi(phi_jz, chi_jk, sigma_j, phi_b_j, n_avg_j):
         j = 3 -> air
 
         define surface concentration internally
-        use last species to relieve the space-filling constraint
-        so pass in a phi_jz with size (J-2,Z)
+        so pass in a phi_jz with size (J-1,Z)
+        TODO: Deal with solid as input
 
-        just uniform for now, for sanity
+        plenty of inputs don't converge with raw newton_krylov
+        TODO: create scfsolve and scfcache equivalents
+
+        Does this agree with SCFeqns?
+        TODO: plot differences at a variety of solutions
     """
-    phi_jz = fabs(phi_jz)
-    phi_jz = np.vstack((np.zeros_like(phi_jz[0]),
-                        phi_jz,
-                        1-np.sum(phi_jz, axis=0)))
-
+    n_avg_j = np.asanyarray(n_avg_j)
+    solids = n_avg_j < 1
     monomers = n_avg_j == 1
+    polymers = n_avg_j > 1
 
-    u_prime_z = log(phi_jz[monomers][-1]/phi_b_j[monomers][-1])
+    phi_jz = np.empty_like(u_jz)
+    for j in np.nonzero(solids)[0]:
+        phi_jz = np.insert(phi_jz,j, 0, axis=0)
+#        phi_jz = np.insert(phi_jz,j, phi_jz_solid[j], axis=0)
+        u_jz = np.insert(u_jz, j, 0, axis=0)
 
-    u_int_jz = np.dot(chi_jk,phi_jz_avg(phi_jz)-phi_b_j[:,None])
-
-    u_jz = u_prime_z + u_int_jz
-    u_jz_avg = meankd(u_jz, axis=1)
-
-    g_jz_norm = exp(u_jz-u_jz_avg)
-
-    phi_jz_new = np.empty_like(u_jz)
     for j in np.nonzero(monomers)[0]:
-        phi_jz_new[j] = phi_b_j[j]/exp(u_jz[j])
+        # TODO: specify amount theta in lattice and ignore phi_b
+        phi_jz[j] = phi_b_j[j]/exp(u_jz[j])
+        phi_jz[j,0] += sigma_j[j]
 
-    for j in np.nonzero(~monomers)[0]:
-        phi_jz_new[j] = calc_phi_z(g_jz_norm[j],
-                                   n_avg_j[j],
-                                   sigma_j[j],
-                                   phi_b_j[j],
-                                   u_jz_avg[j],
-#                                   p_ji[j],
-                                   )
+    u_jz_avg = meankd(u_jz, axis=1)
+    g_jz_norm = exp(-(u_jz - u_jz_avg))
+    for j in np.nonzero(polymers)[0]:
+        phi_jz[j] = calc_phi_z(g_jz_norm[j],
+                               n_avg_j[j],
+                               sigma_j[j],
+                               phi_b_j[j],
+                               u_jz_avg[j],
+                               None if p_ji is None else p_ji[j],
+                               )
+    if dump_phi:
+        return phi_jz[~solids]
 
-    u_int_jz = np.dot(chi_jk,phi_jz_avg(phi_jz_new)-phi_b_j[:,None])
-    u_prime_jz = u_jz - u_int_jz
+    phi_b_j = np.asanyarray(phi_b_j)
+    chi_jk = np.asanyarray(chi_jk)
+    u_int_jz = np.dot(chi_jk,phi_jz_avg(phi_jz)-phi_b_j[:,None])
+    u_prime_jz = (u_jz - u_int_jz)[~solids]
 
     if np.any(monomers):
         # TODO: is this helpful at all?
-        u_prime_z = -log(phi_jz_new[monomers][-1]/phi_b_j[monomers][-1])
+        u_prime_z = log(phi_jz[monomers][-1]/phi_b_j[monomers][-1])
     else:
-        u_prime_z = meankd(u_prime_jz)
+        u_prime_z = meankd(u_prime_jz, axis=0)
 
-    eps_jz = (u_prime_jz - u_prime_z)**2 + (1 - 1/sumkd(phi_jz_new, axis=0))**2
+    # HINT: Don't try to square these errors, it prevents solution
+    eps_jz = (u_prime_jz - u_prime_z) + (1 - sumkd(phi_jz, axis=0))
+
+#    import matplotlib.pyplot as plt
+#
+#    plt.subplot(311)
+#    plt.cla()
+#    plt.plot(u_jz.T)
+#    plt.legend((0,1,2,3))
+#
+#    plt.subplot(312)
+#    plt.cla()
+#    plt.plot(phi_jz.T)
+#
+#    plt.subplot(313)
+#    plt.cla()
+#    plt.plot(eps_jz.T)
+#
+#    plt.draw()
+#    plt.show(block=0)
 
     return eps_jz
 
@@ -544,7 +569,7 @@ def phi_jz_avg(phi_jz):
         avg[j] = correlate(phi_z, LAMBDA_ARRAY, 1)
 
     avg[0,0] += LAMBDA_1
-    avg[types-1,layers-1] += LAMBDA_1
+#    avg[types-1,layers-1] += LAMBDA_1
 
     return avg
 
@@ -692,21 +717,59 @@ class Propagator():
             return _calc_g_zs_uniform_cex(g_z, g_zs, LAMBDA_0, LAMBDA_1)
 
 
-#phi_jz = np.array([
-##                    [0,0,0,0,0,0],
-#                    [.6,.6,.6,.6,.6,.6],
-#                    [.3,.3,.3,.3,.3,.3],
-##                    [0,0,0,0,0,0],
-#                    ])
-#chi_jk = np.array([[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0.0]])
-#sigma_j = np.zeros(4)
-#sigma_j[3] = .1
-#sigma_j= [0,0,.1,0]
-#phi_b_j = np.zeros(4)
-#phi_b_j[3] = .1
-#n_avg_j = np.ones(4)
-#n_avg_j[2] = 100
+#u_jz = np.zeros((3,70))
+#u_jz = np.array([[  9.84914918e-02,   3.15667910e-02,   4.34060765e-02,
+#          4.30805131e-02,   3.23634079e-02,   1.94164231e-02,
+#          1.00710086e-02,   4.98874008e-03,   2.53471154e-03,
+#          1.33686925e-03,   7.15035163e-04,   3.78369596e-04,
+#          1.95129419e-04,   9.73331388e-05,   4.67805900e-05,
+#          2.16123640e-05,   9.57837286e-06,   4.06345198e-06,
+#          1.64582941e-06,   6.34319718e-07,   2.31569576e-07,
+#          7.95423369e-08,   2.54343443e-08,   7.43242946e-09,
+#          1.90952948e-09,   6.76847651e-10,   3.78386343e-08,
+#          4.88995375e-06,   6.32599847e-04,   8.53500637e-02],
+#       [ -8.51731970e-03,  -2.89593508e-02,  -3.49673706e-02,
+#         -3.64031026e-02,  -3.44722899e-02,  -2.85988358e-02,
+#         -2.04147353e-02,  -1.28459228e-02,  -7.46565445e-03,
+#         -4.17597567e-03,  -2.29836652e-03,  -1.25092975e-03,
+#         -6.70850697e-04,  -3.52486751e-04,  -1.80597031e-04,
+#         -8.99255873e-05,  -4.34223065e-05,  -2.03034727e-05,
+#         -9.18359186e-06,  -4.01515554e-06,  -1.69575307e-06,
+#         -6.91436553e-07,  -2.72051243e-07,  -1.03234734e-07,
+#         -3.77562846e-08,  -1.27492938e-08,   6.69155758e-08,
+#          9.23517391e-06,   1.19489067e-03,   1.08691915e-02],
+#       [  5.30151428e-02,   1.22790286e-01,   1.61371496e-01,
+#          1.62710913e-01,   1.32931582e-01,   9.16372822e-02,
+#          5.59067699e-02,   3.17948298e-02,   1.75626577e-02,
+#          9.62045359e-03,   5.24276002e-03,   2.82635709e-03,
+#          1.49619304e-03,   7.73114980e-04,   3.88357120e-04,
+#          1.89157301e-04,   8.91860414e-05,   4.06596390e-05,
+#          1.79087643e-05,   7.61588911e-06,   3.12528580e-06,
+#          1.23696884e-06,   4.71979221e-07,   1.73528934e-07,
+#          6.14347029e-08,   2.08866391e-08,   2.62737507e-09,
+#         -5.41213538e-07,  -7.02635806e-05,  -9.04884609e-03]])
+
+#x_av=1 # goal: >1
+#x_ws=-0.5 # goal: -1.5
+#x_vw = .5 # goal: 3.5
+#x_as=x_ws-1
+#x_av=-x_ws
+#x_sv=0
+#x_aw=0
+#chi_jk = (
+#            (0,x_ws,x_as,x_sv),
+#            (x_ws,0,x_aw,x_vw),
+#            (x_as,x_aw,0,x_av),
+#            (x_sv,x_vw,x_av,0),
+#            )
+#chi_jk = (1-np.eye(4))*0.10
+#
+#sigma = .05
+#sigma_j = (0,0,sigma,0)
+#phi_b_j = (0,.1,0,.9)
+#n_avg_j = (0,1,75,1)
 #p_ji = None
-##avg = phi_jz_avg(phi_jz)
-##print(avg)
-#print(SCFeqns_multi(phi_jz, chi_jk, sigma_j, phi_b_j, n_avg_j))
+#def curried(phi):
+#    return SCFeqns_multi(phi,chi_jk, sigma_j, phi_b_j, n_avg_j)
+#ans=newton_krylov(curried,u_jz,verbose=1,maxiter=30, method='gmres')
+#print(repr(ans))
