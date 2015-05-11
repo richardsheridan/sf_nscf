@@ -428,7 +428,7 @@ def SCFeqns_multi(phi_jz, chi_jk, sigma_j, phi_b_j, n_avg_j):
     u_jz = u_prime_z + u_int_jz
     u_jz_avg = meankd(u_jz, axis=1)
 
-    g_jz_norm = exp(u_jz_avg-u_jz)
+    g_jz_norm = exp(u_jz-u_jz_avg)
 
     phi_jz_new = np.empty_like(u_jz)
     for j in np.nonzero(monomers)[0]:
@@ -466,8 +466,11 @@ def SCFeqns(phi_z, chi, chi_s, sigma, n_avg, p_i, phi_b=0):
     phi_z = fabs(phi_z)
 
     # calculate new g_z (Boltzmann weighting factors)
-    g_z = calc_g_z(phi_z, chi, chi_s, phi_b)
-    u_z = -log(g_z)
+    u_prime = log((1.0 - phi_z)/(1.0 - phi_b))
+    u_int = 2*chi*(correlate(phi_z, LAMBDA_ARRAY, 1)-phi_b)
+    u_int[0] += chi_s
+    u_z = u_prime + u_int
+    g_z = exp(u_z)
 
     # normalize g_z for numerical stability
     u_z_avg = np.mean(u_z)
@@ -545,17 +548,6 @@ def phi_jz_avg(phi_jz):
 
     return avg
 
-
-def calc_g_z(phi_z, chi, chi_s, phi_b=0):
-    layers = phi_z.size
-    delta = np.zeros(layers)
-    delta[0] = 1.0
-    phi_z_avg = correlate(phi_z, LAMBDA_ARRAY, 1)
-
-    # calculate new g_z (Boltzmann weighting factors)
-    g_z = (1.0 - phi_z)/(1.0 - phi_b)*exp(2*chi*(phi_z_avg-phi_b) + delta*chi_s)
-
-    return g_z
 
 if JIT:
     def fastsum(g_zs, axis=0):
