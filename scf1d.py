@@ -474,7 +474,7 @@ def SCFeqns(phi_z, chi, chi_s, sigma, n_avg, p_i, phi_b=0):
 
     # normalize g_z for numerical stability
     u_z_avg = np.mean(u_z)
-    g_z_norm = g_z*exp(u_z_avg)
+    g_z_norm = g_z/exp(u_z_avg)
 
     phi_z_new = calc_phi_z(g_z_norm, n_avg, sigma, phi_b, u_z_avg, p_i)
 
@@ -515,13 +515,13 @@ def calc_phi_z(g_z, n_avg, sigma, phi_b, u_z_avg=0, p_i=None):
         if uniform:
             r_i = segments
             c_free = phi_b/r_i
-            normalizer = exp(-u_z_avg*r_i)
+            normalizer = exp(u_z_avg*r_i)
             c_free = c_free*normalizer
             g_zs_free_ngts = g_zs.ngts_u(c_free)
         else:
             r_i = np.arange(1, segments+1)
             c_i_free = phi_b*p_i/r_i
-            normalizer = exp(-u_z_avg*r_i)
+            normalizer = exp(u_z_avg*r_i)
             c_i_free = c_i_free*normalizer
             g_zs_free_ngts = g_zs.ngts(c_i_free)
 
