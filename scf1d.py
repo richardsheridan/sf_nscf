@@ -241,6 +241,103 @@ def SCFcache(chi,chi_s,pdi,sigma,phi_b,segments,disp=False,cache=_SCFcache_dict)
 
     return phi
 
+def SCFsolve_multi(chi_jk, sigma_j, phi_b_j, n_avg_j, pdi_j=None,
+                   phi_jz_solid=None, disp=False, u_jz0=None, maxiter=30):
+    """ Solve SCF equations involving multiple material types using an initial
+        guess and lattice parameters
+
+        This function finds a solution for the equations where the lattice
+        size is sufficiently large.
+    """
+    if np.any(sigma_j >= 1):
+        raise ValueError('Chains that short cannot be squeezed that high')
+    if np.sum(phi_b_j) != 1:
+        raise ValueError('Bulk volume fractions should add up to 1')
+
+    if disp: starttime = time()
+
+    if pdi_j is None:
+        p_ji = None
+    else:
+        p_ji = [SZdist(pdi, n_avg) if n_avg > 1 else None
+                for n_avg, pdi in zip(n_avg_j, pdi_j)]
+
+    if u_jz0 is None:
+        u_jz0 = np.zeros((np.sum(n_avg_j != 0),
+                          max(MINLAT, n_avg_j.max()*sqrt(sigma_j.max())),
+                          ))
+        if disp:
+            print('No guess passed, using default u_jz0: '
+                  'types = {}, layers = {}'.format(*u_jz0.shape))
+    else:
+        if disp:
+            print('Initial guess passed: '
+                  'types = {}, layers = {}'.format(*u_jz0.shape))
+
+    # resizing loop variables
+    jac_solve_method = 'gmres'
+    lattice_too_small = True
+
+    # We tolerate up to 1 ppm deviation from bulk phi
+    # when counting layers_near_phi_b
+    tol = 1e-6
+
+    def curried(u_jz):
+        return SCFeqns_multi(u_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji,
+                             phi_jz_solid, dump_phi=False)
+
+    while lattice_too_small:
+        if disp: print("Solving SCF equations")
+
+        try:
+            u_jz = newton_krylov(curried,
+                                 u_jz0,
+                                 verbose=bool(disp),
+                                 maxiter=maxiter,
+                                 method=jac_solve_method,
+                                 )
+        except RuntimeError as e:
+            if str(e) == 'gmres is not re-entrant':
+                # Threads are racing to use gmres. Lose the race and use
+                # something slower but thread-safe.
+                jac_solve_method = 'lgmres'
+                continue
+            else:
+                raise
+
+        if disp:
+            print('lattice size:', u_jz.shape[1])
+
+        u_deviation = fabs(u_jz).sum(axis=0)
+        layers_near_zero = u_deviation < tol
+        nbulk = np.sum(layers_near_zero)
+        lattice_too_small = nbulk < MINBULK
+
+        if lattice_too_small:
+            # if there aren't enough layers_near_zero, grow the lattice 20%
+            newlayers = max(1, round((u_jz0.shape[1])*0.2))
+            if disp: print('Growing undersized lattice by', newlayers)
+
+            # TODO: comment on inscrutable indexing and stacking
+            if nbulk:
+                i = np.diff(layers_near_zero).nonzero()[0].max()
+            else:
+                i = u_deviation.argmin()
+            u_jz0 = np.hstack((u_jz[:,:i-1],
+                               [np.linspace(u_z[i-1], u_z[i], num=newlayers)
+                                for u_z in u_jz], # XXX: vectorize?
+                               u_jz[:,i:]))
+
+    if nbulk > 2*MINBULK:
+        chop_end = np.diff(layers_near_zero).nonzero()[0].max()
+        chop_start = chop_end - MINBULK
+        i = np.arange(u_jz.shape[1])
+        u_jz = u_jz[:,(i <= chop_start) | (i > chop_end)]
+
+    if disp:
+        print("SCFsolve execution time:", round(time()-starttime,3), "s")
+
+    return u_jz
 
 def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,phi_b=0,segments=None,
              disp=False,phi0=None,maxiter=30):
@@ -418,7 +515,7 @@ def SCFeqns_multi(u_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji=None,
         instead of 2D arrays if sparsity is a concern.
 
         plenty of inputs don't converge with raw newton_krylov
-        TODO: create scfsolve and scfcache equivalents
+        TODO: create scfcache equivalent
 
         Does this agree with SCFeqns?
         TODO: plot differences at a variety of solutions
@@ -443,6 +540,7 @@ def SCFeqns_multi(u_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji=None,
     u_jz_avg = meankd(u_jz, axis=1)
     g_jz_norm = exp(-(u_jz - u_jz_avg))
     for j in np.nonzero(polymers)[0]:
+        # TODO: introduce thread-based parallelism
         phi_jz[j] = calc_phi_z(g_jz_norm[j],
                                n_avg_j[j],
                                sigma_j[j],
@@ -735,20 +833,22 @@ if 0:
                 (x_as,x_aw,0,x_av),
                 (x_sv,x_vw,x_av,0),
                 ))
-#    chi_jk = (1-np.eye(4))*0.10
+    chi_jk = (1-np.eye(4))*0.10
 
     sigma_j = np.array((0,0,.01,0))
     phi_b_j = np.array((0,0.1,0,.9))
     n_avg_j = np.array((0,1,175,1))
+
     p_ji = None
     def curried(phi, dump=0):
         return SCFeqns_multi(phi,chi_jk, sigma_j, phi_b_j, n_avg_j,
                              dump_phi=dump)
 
     start = time()
-    ans=newton_krylov(curried,u_jz0,verbose=1, maxiter=None, method='gmres')
+    ans=SCFsolve_multi(chi_jk, sigma_j, phi_b_j, n_avg_j)
+#    ans=newton_krylov(curried,u_jz0,verbose=1, maxiter=None, method='gmres')
     print(time()-start)
     print(repr(ans))
     import matplotlib.pyplot as plt
-    phi = curried(ans,1)
+    phi = SCFeqns_multi(ans,chi_jk, sigma_j, phi_b_j, n_avg_j,dump_phi=1)
     plt.plot(phi.T,'x-')
