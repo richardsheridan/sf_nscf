@@ -399,7 +399,8 @@ def default_guess(segments=100,sigma=.5,phi_b=.1,chi=0,chi_s=0):
     default_phi0 = np.linspace(ss,phi_b,num=default_layers)
     return default_phi0
 
-def SCFeqns_multi(u_jz, chi_jk, sigma_j, theta_j, phi_b_j, n_avg_j, p_ji=None, dump_phi=False):
+def SCFeqns_multi(u_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji=None,
+                  phi_jz_solid=None, dump_phi=False):
     """ add a dimension for species to uniform, terminally attached chains
         use it to add "air"/"void" monomeric species
 
@@ -408,9 +409,8 @@ def SCFeqns_multi(u_jz, chi_jk, sigma_j, theta_j, phi_b_j, n_avg_j, p_ji=None, d
         j = 2 -> polymer
         j = 3 -> air
 
-        define surface concentration internally
-        so pass in a phi_jz with size (J-1,Z)
-        TODO: Deal with solid as input
+        define surface concentration with separate density field
+        so pass in a u_jz with size (J-1,Z)
 
         plenty of inputs don't converge with raw newton_krylov
         TODO: create scfsolve and scfcache equivalents
@@ -425,8 +425,10 @@ def SCFeqns_multi(u_jz, chi_jk, sigma_j, theta_j, phi_b_j, n_avg_j, p_ji=None, d
 
     phi_jz = np.empty_like(u_jz)
     for j in np.nonzero(solids)[0]:
-        phi_jz = np.insert(phi_jz,j, 0, axis=0)
-#        phi_jz = np.insert(phi_jz,j, phi_jz_solid[j], axis=0)
+        phi_jz = np.insert(phi_jz,
+                           j,
+                           0 if phi_jz_solid is None else phi_jz_solid[j],
+                           axis=0)
         u_jz = np.insert(u_jz, j, 0, axis=0)
 
     for j in np.nonzero(monomers)[0]:
@@ -455,12 +457,12 @@ def SCFeqns_multi(u_jz, chi_jk, sigma_j, theta_j, phi_b_j, n_avg_j, p_ji=None, d
     eps_jz = (u_prime_jz - meankd(u_prime_jz, axis=0)) + (1 - sumkd(phi_jz, axis=0))
 
 #    import matplotlib.pyplot as plt
-#
+
 #    plt.subplot(311)
 #    plt.cla()
 #    plt.plot(u_jz.T)
 #    plt.legend((0,1,2,3))
-#
+
 #    plt.subplot(312)
 #    plt.cla()
 #    plt.plot(phi_jz.T)
@@ -468,7 +470,7 @@ def SCFeqns_multi(u_jz, chi_jk, sigma_j, theta_j, phi_b_j, n_avg_j, p_ji=None, d
 #    plt.subplot(313)
 #    plt.cla()
 #    plt.plot(eps_jz.T)
-#
+
 #    plt.draw()
 #    plt.show(block=0)
 
@@ -478,6 +480,9 @@ def SCFeqns(phi_z, chi, chi_s, sigma, n_avg, p_i, phi_b=0):
     """ System of SCF equation for terminally attached polymers.
 
         Formatted for input to a nonlinear minimizer or solver.
+
+        The sign convention here on u is "backwards" and always has been.
+        It saves a few sign flips, and looks more like Cosgrove's.
     """
 
     # let the solver go negative if it wants
@@ -709,36 +714,36 @@ class Propagator():
         def _calc_g_zs_uniform(g_z, g_zs):
             return _calc_g_zs_uniform_cex(g_z, g_zs, LAMBDA_0, LAMBDA_1)
 
+if 0:
+    u_jz0 = np.zeros((3,100))
 
-u_jz = np.zeros((3,100))
+    x_av=1 # goal: >1
+    x_ws=-0.6 # goal: -1.5
+    x_vw = 2.5 # goal: 3.5
+    x_as=x_ws-1
+    x_av=-x_ws
+    x_sv=0
+    x_aw=0
+    chi_jk = np.array((
+                (0,x_ws,x_as,x_sv),
+                (x_ws,0,x_aw,x_vw),
+                (x_as,x_aw,0,x_av),
+                (x_sv,x_vw,x_av,0),
+                ))
+#    chi_jk = (1-np.eye(4))*0.10
 
-x_av=1 # goal: >1
-x_ws=-0.6 # goal: -1.5
-x_vw = 2.5 # goal: 3.5
-x_as=x_ws-1
-x_av=-x_ws
-x_sv=0
-x_aw=0
-chi_jk = np.array((
-            (0,x_ws,x_as,x_sv),
-            (x_ws,0,x_aw,x_vw),
-            (x_as,x_aw,0,x_av),
-            (x_sv,x_vw,x_av,0),
-            ))
-#chi_jk = (1-np.eye(4))*0.10
+    sigma_j = np.array((0,0,.01,0))
+    phi_b_j = np.array((0,0.1,0,.9))
+    n_avg_j = np.array((0,1,175,1))
+    p_ji = None
+    def curried(phi, dump=0):
+        return SCFeqns_multi(phi,chi_jk, sigma_j, phi_b_j, n_avg_j,
+                             dump_phi=dump)
 
-sigma_j = np.array((0,0,.01,0))
-phi_b_j = np.array((0,0.01,0,.99))
-n_avg_j = np.array((0,1,175,1))
-p_ji = None
-def curried(phi, dump=0):
-    return SCFeqns_multi(phi,chi_jk, sigma_j, phi_b_j, n_avg_j,
-                         dump_phi=dump)
-
-start = time()
-ans=newton_krylov(curried,u_jz,verbose=1, maxiter=None, method='gmres')
-print(time()-start)
-print(repr(ans))
-import matplotlib.pyplot as plt
-phi = curried(ans,1)
-plt.plot(phi.T,'x-')
+    start = time()
+    ans=newton_krylov(curried,u_jz0,verbose=1, maxiter=None, method='gmres')
+    print(time()-start)
+    print(repr(ans))
+    import matplotlib.pyplot as plt
+    phi = curried(ans,1)
+    plt.plot(phi.T,'x-')
