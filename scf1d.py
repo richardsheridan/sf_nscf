@@ -401,16 +401,21 @@ def default_guess(segments=100,sigma=.5,phi_b=.1,chi=0,chi_s=0):
 
 def SCFeqns_multi(u_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji=None,
                   phi_jz_solid=None, dump_phi=False):
-    """ add a dimension for species to uniform, terminally attached chains
-        use it to add "air"/"void" monomeric species
+    """ System of SCF equation for mixed homopolymers, solvents and solids.
+        Formatted for input to a nonlinear minimizer or solver.
 
+        The j dimension is an index for the type of material, e.g.
         j = 0 -> surface
         j = 1 -> solvent
         j = 2 -> polymer
         j = 3 -> air
 
-        define surface concentration with separate density field
+        define solids concentration with separate density field,
         so pass in a u_jz with size (J-1,Z)
+
+        All inputs should be ndarrays. For speed, we don't check or convert.
+        p_ji and phi_jz_solid can be lists or dicts of arrays
+        instead of 2D arrays if sparsity is a concern.
 
         plenty of inputs don't converge with raw newton_krylov
         TODO: create scfsolve and scfcache equivalents
