@@ -241,6 +241,27 @@ def SCFcache(chi,chi_s,pdi,sigma,phi_b,segments,disp=False,cache=_SCFcache_dict)
 
     return phi
 
+
+def build_chi_cvl(x_av, x_ws, x_vw, x_aw):
+    """ Build an interaction matrix based on a reduced number of parameters
+        and some rules.
+
+        Based on the system from Cohen-Stuart, de Vos, and Leermakers (2006)
+    """
+#    x_av=1 # goal: >1
+#    x_ws=-0.6 # goal: -1.5
+#    x_vw = 2.5 # goal: 3.5
+    x_as=x_ws-1
+    x_av=-x_ws
+    x_sv=0
+    return np.array((
+                    (0,x_ws,x_as,x_sv),
+                    (x_ws,0,x_aw,x_vw),
+                    (x_as,x_aw,0,x_av),
+                    (x_sv,x_vw,x_av,0),
+                    ))
+
+
 def SCFsolve_multi(chi_jk, sigma_j, phi_b_j, n_avg_j, pdi_j=None,
                    phi_jz_solid=None, disp=False, u_jz0=None, maxiter=30):
     """ Solve SCF equations involving multiple material types using an initial
