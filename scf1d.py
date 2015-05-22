@@ -22,11 +22,11 @@ Profile\ [#Cosgrove]_\ [#deVos]_\ [#Sheridan]_
     of "surface theta" conditions. [in prep]
 """
 
+from util import schultz_zimm
 import numpy as np
 from time import time
 from collections import OrderedDict
 from numpy import exp, log, sqrt, fabs
-from scipy.special import gammaln
 from scipy.optimize.nonlin import newton_krylov, NoConvergence
 
 # compatability for systems lacking compiler capability
@@ -113,7 +113,7 @@ def SCFsqueeze(chi,chi_s,pdi,sigma,phi_b,segments,layers,disp=False):
     phi = SCFcache(chi,chi_s,pdi,sigma,phi_b,segments,disp)
     squeezing = layers - len(phi) < 0
 
-    p_i = SZdist(pdi,segments)
+    p_i = schultz_zimm(pdi,segments)
     jac_solve_method = 'gmres'
     def curried(phi):
         return SCFeqns(phi,chi,chi_s,sigma,segments,p_i,phi_b)
@@ -280,7 +280,7 @@ def SCFsolve_multi(chi_jk, sigma_j, phi_b_j, n_avg_j, pdi_j=None,
     if pdi_j is None:
         p_ji = None
     else:
-        p_ji = [SZdist(pdi, n_avg) if n_avg > 1 else None
+        p_ji = [schultz_zimm(pdi, n_avg) if n_avg > 1 else None
                 for n_avg, pdi in zip(n_avg_j, pdi_j)]
 
     if u_jz0 is None:
@@ -376,7 +376,7 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,phi_b=0,segments=None,
 
     if disp: starttime = time()
 
-    p_i = SZdist(pdi,segments)
+    p_i = schultz_zimm(pdi,segments)
 
     if phi0 is None:
         # TODO: Better initial guess for chi>.6
@@ -447,65 +447,7 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,phi_b=0,segments=None,
     return phi
 
 
-_SZdist_dict = OrderedDict()
-def SZdist(pdi,nn,cache=_SZdist_dict):
-    """ Calculate Shultz-Zimm distribution from PDI and number average DP
 
-    Shultz-Zimm is a "realistic" distribution for linear polymers. Numerical
-    problems arise when the distribution gets too uniform, so if we find them,
-    default to an exact uniform calculation.
-    """
-    args = pdi,nn
-    if args in cache:
-        cache.move_to_end(args)
-        return cache[args]
-
-    uniform = False
-
-    if pdi == 1.0:
-        uniform = True
-    elif pdi < 1.0:
-        raise ValueError('Invalid PDI')
-    else:
-        x = 1.0/(pdi-1.0)
-        # Calculate the distribution in chunks so we don't waste CPU time
-        chunk = 256
-        p_ni_list = []
-        pdi_underflow = False
-
-        for i in range(max(1,int((100*nn)/chunk))):
-            ni = np.arange(chunk*i+1,chunk*(i+1)+1,dtype=np.float64)
-            r = ni/nn
-            xr = x*r
-
-            p_ni = exp(log(x/ni) - gammaln(x+1) + xr*(log(xr)/r-1))
-
-            pdi_underflow = (p_ni>=1.0).any() # catch "too small PDI"
-            if pdi_underflow: break # and break out to uniform calculation
-
-            # Stop calculating when species account for less than 1ppm
-            keep = (r < 1.0) | (p_ni >= 1e-6)
-            if keep.all():
-                p_ni_list.append(p_ni)
-            else:
-                p_ni_list.append(p_ni[keep])
-                break
-        else: # Belongs to the for loop. Executes if no break statement runs.
-            raise RuntimeError('SZdist overflow')
-
-    if uniform or pdi_underflow:
-        # NOTE: rounding here allows nn to be a double in the rest of the logic
-        p_ni = np.zeros(round(nn))
-        p_ni[-1] = 1.0
-    else:
-        p_ni = np.concatenate(p_ni_list)
-        p_ni /= p_ni.sum()
-    cache[args]=p_ni
-
-    if len(cache)>9000:
-        cache.popitem(last=False)
-
-    return p_ni
 
 def default_guess(segments=100,sigma=.5,phi_b=.1,chi=0,chi_s=0):
     """ Produce an initial guess for phi via analytical approximants.
