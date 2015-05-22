@@ -22,37 +22,16 @@ Profile\ [#Cosgrove]_\ [#deVos]_\ [#Sheridan]_
     of "surface theta" conditions. [in prep]
 """
 
-from util import schultz_zimm, sumkd, meankd, default_guess, MINLAT, MINBULK
+from util import (schultz_zimm, sumkd, meankd, default_guess, MINLAT, MINBULK,
+                LAMBDA_1, LAMBDA_ARRAY, correlate, _calc_g_zs,
+                _calc_g_zs_uniform, compose, fastsum)
+
 import numpy as np
 from time import time
 from collections import OrderedDict
 from numpy import exp, log, sqrt, fabs
 from scipy.optimize.nonlin import newton_krylov, NoConvergence
 
-# compatability for systems lacking compiler capability
-PYONLY = JIT = False
-try:
-    from numba import njit
-    JIT = True
-except ImportError:
-    try:
-        from calc_g_zs_cex import _calc_g_zs_cex, _calc_g_zs_uniform_cex
-    except ImportError:
-        from warnings import warn
-        warn('Compiled inner loop unavailable, using slow as molasses version!')
-        PYONLY = True
-
-# Micro-optimizations
-
-# faster version of numpy.convolve for ndarray only
-# This is okay to use as long as LAMBDA_ARRAY is symmetric,
-# otherwise a slice LAMBDA_ARRAY[::-1] is necessary
-from numpy.core.multiarray import correlate
-
-# Precalculate some global constants
-LAMBDA_1 = np.float64(1.0)/6.0 #always assume cubic lattice (1/6) for now
-LAMBDA_0 = 1.0-2.0*LAMBDA_1
-LAMBDA_ARRAY = np.array([LAMBDA_1,LAMBDA_0,LAMBDA_1])
 
 def SCFprofile(z, chi=None, chi_s=None, h_dry=None, l_lat=1, mn=None,
                m_lat=1, phi_b=0, pdi=1, disp=False):
@@ -352,6 +331,7 @@ def SCFsolve_multi(chi_jk, sigma_j, phi_b_j, n_avg_j, pdi_j=None,
 
     return u_jz
 
+
 def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,phi_b=0,segments=None,
              disp=False,phi0=None,maxiter=30):
     """Solve SCF equations using an initial guess and lattice parameters
@@ -522,6 +502,25 @@ def SCFeqns_multi(u_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji=None,
 
     return eps_jz
 
+
+def phi_jz_avg(phi_jz):
+    """ Convolve the transition matrix with the density field.
+
+        For now, treat ends with special cases, add j[0] to phi[0], j[J] to phi[Z]
+        later, pass in phi_b_below_j, phi_b_above_j and add to each correlation
+    """
+    types, layers = phi_jz.shape
+    avg = np.empty_like(phi_jz)
+
+    for j, phi_z in enumerate(phi_jz):
+        avg[j] = correlate(phi_z, LAMBDA_ARRAY, 1)
+
+    avg[0,0] += LAMBDA_1
+#    avg[types-1,layers-1] += LAMBDA_1
+
+    return avg
+
+
 def SCFeqns(phi_z, chi, chi_s, sigma, n_avg, p_i, phi_b=0):
     """ System of SCF equation for terminally attached polymers.
 
@@ -550,6 +549,7 @@ def SCFeqns(phi_z, chi, chi_s, sigma, n_avg, p_i, phi_b=0):
     eps_z = phi_z - phi_z_new
 
     return eps_z
+
 
 def calc_phi_z(g_z, n_avg, sigma, phi_b, u_z_avg=0, p_i=None):
 
@@ -600,58 +600,6 @@ def calc_phi_z(g_z, n_avg, sigma, phi_b, u_z_avg=0, p_i=None):
 
     return phi_z_ta + phi_z_free
 
-def phi_jz_avg(phi_jz):
-    """ Convolve the transition matrix with the density field.
-
-        For now, treat ends with special cases, add j[0] to phi[0], j[J] to phi[Z]
-        later, pass in phi_b_below_j, phi_b_above_j and add to each correlation
-    """
-    types, layers = phi_jz.shape
-    avg = np.empty_like(phi_jz)
-
-    for j, phi_z in enumerate(phi_jz):
-        avg[j] = correlate(phi_z, LAMBDA_ARRAY, 1)
-
-    avg[0,0] += LAMBDA_1
-#    avg[types-1,layers-1] += LAMBDA_1
-
-    return avg
-
-
-if JIT:
-    def fastsum(g_zs, axis=0):
-        output = np.zeros(g_zs.shape[1])
-        _fastsum(g_zs, output)
-        return output
-
-    @njit('void(f8[:,:],f8[:])')
-    def _fastsum(g_zs, output):
-        layers, segments = g_zs.shape
-        for s in range(segments):
-            for z in range(layers):
-                output[s] += g_zs[z, s]
-
-    def compose(g_zs, g_zs_ngts, g_z):
-        output = np.zeros_like(g_z)
-        _compose(g_zs, g_zs_ngts, output)
-        output /= g_z
-        return output
-
-    @njit('void(f8[:,:],f8[:,:],f8[:])')
-    def _compose(g_zs, g_zs_ngts, output):
-        layers, segments = g_zs.shape
-        for s in range(segments):
-            for z in range(layers):
-                if g_zs[z, s] and g_zs_ngts[z, segments-s-1]: # Prevent NaNs
-                    output[z] += g_zs[z, s] * g_zs_ngts[z, segments-s-1]
-
-else:
-    fastsum = np.sum
-
-    def compose(g_zs, g_zs_ngts, g_z):
-        prod = g_zs * np.fliplr(g_zs_ngts)
-        prod[np.isnan(prod)] = 0
-        return np.sum(prod, axis=1) / g_z
 
 class Propagator():
 
@@ -666,7 +614,7 @@ class Propagator():
         g_zs = self._new()
         g_zs[:, 0] = 0.0
         g_zs[0, 0] = self.g_z[0]
-        self._calc_g_zs_uniform(self.g_z, g_zs)
+        _calc_g_zs_uniform(self.g_z, g_zs)
         return g_zs
 
     def free(self):
@@ -675,7 +623,7 @@ class Propagator():
 
         g_zs = self._new()
         g_zs[:, 0] = self.g_z
-        self._calc_g_zs_uniform(self.g_z, g_zs)
+        _calc_g_zs_uniform(self.g_z, g_zs)
         return g_zs
 
     def ngts_u(self, c):
@@ -684,7 +632,7 @@ class Propagator():
 
         g_zs = self._new()
         g_zs[:, 0] = c * self.g_z
-        self._calc_g_zs_uniform(self.g_z, g_zs)
+        _calc_g_zs_uniform(self.g_z, g_zs)
         return g_zs
 
     def ngts(self, c_i):
@@ -693,72 +641,12 @@ class Propagator():
 
         g_zs = self._new()
         g_zs[:, 0] = c_i[-1] * self.g_z
-        self._calc_g_zs(self.g_z, c_i, g_zs)
+        _calc_g_zs(self.g_z, c_i, g_zs)
         return g_zs
 
     def _new(self):
         return np.empty(self.shape, order='F')
 
-    if JIT:
-        @staticmethod
-        @njit('void(f8[:],f8[:],f8[:,:])')
-        def _calc_g_zs(g_z,c_i,g_zs):
-            layers, segments = g_zs.shape
-            for r in range(1, segments):
-                c = c_i[segments-r-1]
-                g_zs[0, r] = (g_zs[0, r-1] * LAMBDA_0
-                              + g_zs[1, r-1] * LAMBDA_1
-                              + c) * g_z[0]
-                for z in range(1, layers-1):
-                    g_zs[z, r] = (g_zs[z-1, r-1] * LAMBDA_1
-                                  + g_zs[z, r-1] * LAMBDA_0
-                                  + g_zs[z+1, r-1] * LAMBDA_1
-                                  + c) * g_z[z]
-                g_zs[layers-1, r] = (g_zs[layers-1, r-1] * LAMBDA_0
-                                     + g_zs[layers-2, r-1] * LAMBDA_1
-                                     + c) * g_z[layers-1]
-
-        @staticmethod
-        @njit('void(f8[:],f8[:,:])')
-        def _calc_g_zs_uniform(g_z, g_zs):
-            layers, segments = g_zs.shape
-            for r in range(1, segments):
-                g_zs[0, r] = (g_zs[0, r-1] * LAMBDA_0
-                              + g_zs[1, r-1] * LAMBDA_1
-                              ) * g_z[0]
-                for z in range(1, layers-1):
-                    g_zs[z, r] = (g_zs[z-1, r-1] * LAMBDA_1
-                                  + g_zs[z, r-1] * LAMBDA_0
-                                  + g_zs[z+1, r-1] * LAMBDA_1
-                                  ) * g_z[z]
-                g_zs[layers-1, r] = (g_zs[layers-1, r-1] * LAMBDA_0
-                                     + g_zs[layers-2, r-1] * LAMBDA_1
-                                     ) * g_z[layers-1]
-
-    elif PYONLY:
-        @staticmethod
-        def _calc_g_zs(g_z, c_i, g_zs):
-            pg_zs = g_zs[:, 0]
-            segment_iterator = enumerate(c_i[::-1])
-            next(segment_iterator)
-            for r, c in segment_iterator:
-                g_zs[: ,r] = pg_zs = (correlate(pg_zs, LAMBDA_ARRAY, 1) + c) * g_z
-
-        @staticmethod
-        def _calc_g_zs_uniform(g_z, g_zs):
-            segments = g_zs.shape[1]
-            pg_zs = g_zs[:, 0]
-            for r in range(1, segments):
-                g_zs[:, r] = pg_zs = correlate(pg_zs, LAMBDA_ARRAY, 1) * g_z
-
-    else:
-        @staticmethod
-        def _calc_g_zs(g_z, c_i, g_zs):
-            return _calc_g_zs_cex(g_z, c_i, g_zs, LAMBDA_0, LAMBDA_1)
-
-        @staticmethod
-        def _calc_g_zs_uniform(g_z, g_zs):
-            return _calc_g_zs_uniform_cex(g_z, g_zs, LAMBDA_0, LAMBDA_1)
 
 if 0:
     u_jz0 = np.zeros((3,100))

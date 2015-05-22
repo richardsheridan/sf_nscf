@@ -8,18 +8,27 @@ This module is for small functions that haven't changed in a while and are
 cluttering the flow of another module.
 
 Also for functions or classes that have import-time logic associated with them
+(2nd half)
 
 Nothing here should have in-package dependencies or the tests will have circular
 import problems
 
 """
 from __future__ import division, print_function, unicode_literals
+
 import numpy as np
 from numpy import exp, log
 from scipy.special import gammaln
 from collections import OrderedDict
 
+# faster version of numpy.convolve for ndarray only
+# This is okay to use as long as LAMBDA_ARRAY is symmetric,
+# otherwise a slice LAMBDA_ARRAY[::-1] is necessary
+from numpy.core.multiarray import correlate
 
+LAMBDA_1 = np.float64(1.0)/6.0 #always assume cubic lattice (1/6) for now
+LAMBDA_0 = 1.0-2.0*LAMBDA_1
+LAMBDA_ARRAY = np.array([LAMBDA_1,LAMBDA_0,LAMBDA_1])
 MINLAT = 25
 MINBULK = 5
 
@@ -98,3 +107,113 @@ def sumkd(array, axis=None):
 
 def meankd(array, axis=None):
     return np.mean(array, axis=axis, keepdims=True)
+
+""" BEGIN IMPORT-TIME SHENANIGANS """
+
+# compatability for systems lacking compiler capability
+PYONLY = JIT = False
+try:
+    from numba import njit
+    JIT = True
+except ImportError:
+    try:
+        from calc_g_zs_cex import _calc_g_zs_cex, _calc_g_zs_uniform_cex
+    except ImportError:
+        from warnings import warn
+        warn('Compiled inner loop unavailable, using slow-as-molasses version!')
+    else:
+        CEX = True
+
+
+if JIT:
+    def fastsum(g_zs, axis=0):
+        output = np.zeros(g_zs.shape[1])
+        _fastsum(g_zs, output)
+        return output
+
+    @njit('void(f8[:,:],f8[:])')
+    def _fastsum(g_zs, output):
+        layers, segments = g_zs.shape
+        for s in range(segments):
+            for z in range(layers):
+                output[s] += g_zs[z, s]
+
+    def compose(g_zs, g_zs_ngts, g_z):
+        output = np.zeros_like(g_z)
+        _compose(g_zs, g_zs_ngts, output)
+        output /= g_z
+        return output
+
+    @njit('void(f8[:,:],f8[:,:],f8[:])')
+    def _compose(g_zs, g_zs_ngts, output):
+        layers, segments = g_zs.shape
+        for s in range(segments):
+            for z in range(layers):
+                if g_zs[z, s] and g_zs_ngts[z, segments-s-1]: # Prevent NaNs
+                    output[z] += g_zs[z, s] * g_zs_ngts[z, segments-s-1]
+
+else:
+    fastsum = np.sum
+
+    def compose(g_zs, g_zs_ngts, g_z):
+        prod = g_zs * np.fliplr(g_zs_ngts)
+        prod[np.isnan(prod)] = 0
+        return np.sum(prod, axis=1) / g_z
+
+
+# _calc_g_zs and _calc_g_zs_uniform need a special 3 way branch because of the
+# optional c-extension
+if JIT:
+    @njit('void(f8[:],f8[:],f8[:,:])')
+    def _calc_g_zs(g_z,c_i,g_zs):
+        layers, segments = g_zs.shape
+        for r in range(1, segments):
+            c = c_i[segments-r-1]
+            g_zs[0, r] = (g_zs[0, r-1] * LAMBDA_0
+                          + g_zs[1, r-1] * LAMBDA_1
+                          + c) * g_z[0]
+            for z in range(1, layers-1):
+                g_zs[z, r] = (g_zs[z-1, r-1] * LAMBDA_1
+                              + g_zs[z, r-1] * LAMBDA_0
+                              + g_zs[z+1, r-1] * LAMBDA_1
+                              + c) * g_z[z]
+            g_zs[layers-1, r] = (g_zs[layers-1, r-1] * LAMBDA_0
+                                 + g_zs[layers-2, r-1] * LAMBDA_1
+                                 + c) * g_z[layers-1]
+
+    @njit('void(f8[:],f8[:,:])')
+    def _calc_g_zs_uniform(g_z, g_zs):
+        layers, segments = g_zs.shape
+        for r in range(1, segments):
+            g_zs[0, r] = (g_zs[0, r-1] * LAMBDA_0
+                          + g_zs[1, r-1] * LAMBDA_1
+                          ) * g_z[0]
+            for z in range(1, layers-1):
+                g_zs[z, r] = (g_zs[z-1, r-1] * LAMBDA_1
+                              + g_zs[z, r-1] * LAMBDA_0
+                              + g_zs[z+1, r-1] * LAMBDA_1
+                              ) * g_z[z]
+            g_zs[layers-1, r] = (g_zs[layers-1, r-1] * LAMBDA_0
+                                 + g_zs[layers-2, r-1] * LAMBDA_1
+                                 ) * g_z[layers-1]
+
+elif CEX:
+    def _calc_g_zs(g_z, c_i, g_zs):
+        return _calc_g_zs_cex(g_z, c_i, g_zs, LAMBDA_0, LAMBDA_1)
+
+    def _calc_g_zs_uniform(g_z, g_zs):
+        return _calc_g_zs_uniform_cex(g_z, g_zs, LAMBDA_0, LAMBDA_1)
+
+else:
+    def _calc_g_zs(g_z, c_i, g_zs):
+        pg_zs = g_zs[:, 0]
+        segment_iterator = enumerate(c_i[::-1])
+        next(segment_iterator)
+        for r, c in segment_iterator:
+            g_zs[: ,r] = pg_zs = (correlate(pg_zs, LAMBDA_ARRAY, 1) + c) * g_z
+
+    def _calc_g_zs_uniform(g_z, g_zs):
+        segments = g_zs.shape[1]
+        pg_zs = g_zs[:, 0]
+        for r in range(1, segments):
+            g_zs[:, r] = pg_zs = correlate(pg_zs, LAMBDA_ARRAY, 1) * g_z
