@@ -5,7 +5,33 @@ Created on Fri May 22 15:29:38 2015
 @author: Richard Sheridan
 """
 import numpy as np
-from util import schultz_zimm
+from util import schultz_zimm, sumkd, meankd
+
+def sumkd_test():
+    result = sumkd(np.arange(4,dtype=float).reshape(2,2))
+    data = np.array([[6.]])
+    assert np.allclose(result, data, atol=1e-14)
+    result = sumkd(np.arange(4,dtype=float).reshape(2,2), 1)
+    data = np.array([[1.],
+       [5.]])
+    assert np.allclose(result, data, atol=1e-14)
+    result = sumkd(np.arange(4,dtype=float).reshape(2,2), 0)
+    data = np.array([[2., 4.]])
+    assert np.allclose(result, data, atol=1e-14)
+
+
+def meankd_test():
+    result = meankd(np.arange(4,dtype=float).reshape(2,2))
+    data = np.array([[1.5]])
+    assert np.allclose(result, data, atol=1e-14)
+    result = meankd(np.arange(4,dtype=float).reshape(2,2), 1)
+    data = np.array([[ 0.5],
+       [ 2.5]])
+    assert np.allclose(result, data, atol=1e-14)
+    result = meankd(np.arange(4,dtype=float).reshape(2,2), 0)
+    data = np.array([[ 1.,  2.]])
+    assert np.allclose(result, data, atol=1e-14)
+
 def schultz_zimm_test():
 
     # uniform
@@ -140,6 +166,9 @@ def schultz_zimm_test():
 
 def main():
     schultz_zimm_test()
+    sumkd_test()
+    meankd_test()
+    print('all tests passed')
 
 if __name__ == '__main__':
     main()

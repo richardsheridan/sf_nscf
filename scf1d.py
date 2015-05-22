@@ -22,7 +22,7 @@ Profile\ [#Cosgrove]_\ [#deVos]_\ [#Sheridan]_
     of "surface theta" conditions. [in prep]
 """
 
-from util import schultz_zimm
+from util import schultz_zimm, sumkd, meankd, default_guess, MINLAT, MINBULK
 import numpy as np
 from time import time
 from collections import OrderedDict
@@ -49,18 +49,10 @@ except ImportError:
 # otherwise a slice LAMBDA_ARRAY[::-1] is necessary
 from numpy.core.multiarray import correlate
 
-def sumkd(array, axis=None):
-    return np.sum(array, axis=axis, keepdims=True)
-
-def meankd(array, axis=None):
-    return np.mean(array, axis=axis, keepdims=True)
-
 # Precalculate some global constants
 LAMBDA_1 = np.float64(1.0)/6.0 #always assume cubic lattice (1/6) for now
 LAMBDA_0 = 1.0-2.0*LAMBDA_1
 LAMBDA_ARRAY = np.array([LAMBDA_1,LAMBDA_0,LAMBDA_1])
-MINLAT = 25
-MINBULK = 5
 
 def SCFprofile(z, chi=None, chi_s=None, h_dry=None, l_lat=1, mn=None,
                m_lat=1, phi_b=0, pdi=1, disp=False):
@@ -446,18 +438,6 @@ def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,phi_b=0,segments=None,
 
     return phi
 
-
-
-
-def default_guess(segments=100,sigma=.5,phi_b=.1,chi=0,chi_s=0):
-    """ Produce an initial guess for phi via analytical approximants.
-
-    For now, a line using numbers from scaling theory
-    """
-    ss=sqrt(sigma)
-    default_layers = round(max(MINLAT,segments*ss))
-    default_phi0 = np.linspace(ss,phi_b,num=default_layers)
-    return default_phi0
 
 def SCFeqns_multi(u_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji=None,
                   phi_jz_solid=None, dump_phi=False):

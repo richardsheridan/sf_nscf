@@ -19,6 +19,10 @@ from numpy import exp, log
 from scipy.special import gammaln
 from collections import OrderedDict
 
+
+MINLAT = 25
+MINBULK = 5
+
 _sz_dict = OrderedDict()
 def schultz_zimm(pdi,nn,cache=_sz_dict):
     """ Calculate Shultz-Zimm distribution from PDI and number average DP
@@ -78,3 +82,19 @@ def schultz_zimm(pdi,nn,cache=_sz_dict):
         cache.popitem(last=False)
 
     return p_ni
+
+def default_guess(segments=100,sigma=.5,phi_b=.1,chi=0,chi_s=0):
+    """ Produce an initial guess for phi via analytical approximants.
+
+    For now, a line using numbers from scaling theory
+    """
+    ss=np.sqrt(sigma)
+    default_layers = round(max(25,segments*ss))
+    default_phi0 = np.linspace(ss,phi_b,num=default_layers)
+    return default_phi0
+
+def sumkd(array, axis=None):
+    return np.sum(array, axis=axis, keepdims=True)
+
+def meankd(array, axis=None):
+    return np.mean(array, axis=axis, keepdims=True)
