@@ -534,11 +534,11 @@ def SCFeqns_multi(u_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji=None,
         u_jz = np.insert(u_jz, j, 0, axis=0)
 
     for j in np.nonzero(monomers)[0]:
-        phi_jz[j] = phi_b_j[j]/exp(u_jz[j])
+        phi_jz[j] = phi_b_j[j] / exp(u_jz[j])
         phi_jz[j,0] += sigma_j[j]
 
     u_jz_avg = meankd(u_jz, axis=1)
-    g_jz_norm = exp(-(u_jz - u_jz_avg))
+    g_jz_norm = exp(u_jz_avg - u_jz)
     for j in np.nonzero(polymers)[0]:
         # TODO: introduce thread-based parallelism
         phi_jz[j] = calc_phi_z(g_jz_norm[j],
@@ -551,7 +551,7 @@ def SCFeqns_multi(u_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji=None,
     if dump_phi:
         return phi_jz[~solids]
 
-    u_int_jz = np.dot(chi_jk,phi_jz_avg(phi_jz)-phi_b_j[:,None])
+    u_int_jz = np.dot(chi_jk, phi_jz_avg(phi_jz) - phi_b_j[:, None])
 
     # TODO: see if subtracting a reference potential helps
     u_prime_jz = (u_jz - u_int_jz)[~solids]
@@ -845,10 +845,11 @@ if 0:
                              dump_phi=dump)
 
     start = time()
-    ans=SCFsolve_multi(chi_jk, sigma_j, phi_b_j, n_avg_j)
+    for x in range(10):
+        ans=SCFsolve_multi(chi_jk, sigma_j, phi_b_j, n_avg_j)
 #    ans=newton_krylov(curried,u_jz0,verbose=1, maxiter=None, method='gmres')
     print(time()-start)
     print(repr(ans))
-    import matplotlib.pyplot as plt
-    phi = SCFeqns_multi(ans,chi_jk, sigma_j, phi_b_j, n_avg_j,dump_phi=1)
-    plt.plot(phi.T,'x-')
+#    import matplotlib.pyplot as plt
+#    phi = SCFeqns_multi(ans,chi_jk, sigma_j, phi_b_j, n_avg_j,dump_phi=1)
+#    plt.plot(phi.T,'x-')
