@@ -22,14 +22,14 @@ Profile\ [#Cosgrove]_\ [#deVos]_\ [#Sheridan]_
     of "surface theta" conditions. [in prep]
 """
 
-from util import (schultz_zimm, sumkd, meankd, default_guess, MINLAT, MINBULK,
+from util import (schultz_zimm, sumkd, meankd, MINLAT, MINBULK,
                 LAMBDA_1, LAMBDA_ARRAY, correlate, _calc_g_zs,
                 _calc_g_zs_uniform, compose, fastsum)
 
 import numpy as np
 from time import time
 from collections import OrderedDict
-from numpy import exp, log, sqrt, fabs
+from numpy import exp, log, fabs
 from scipy.optimize.nonlin import newton_krylov, NoConvergence
 
 
@@ -105,21 +105,25 @@ def SCFsqueeze(chi,chi_s,pdi,sigma,phi_b,segments,layers,disp=False):
 
 
 _SCFcache_dict = OrderedDict()
-def SCFcache(chi,chi_s,pdi,sigma,phi_b,segments,disp=False,cache=_SCFcache_dict):
+def SCFcache(chi,chi_s,pdi,sigma,phi_b,n_avg,disp=False,cache=_SCFcache_dict):
     """Return a memoized SCF result by walking from a previous solution.
 
     Using an OrderedDict because I want to prune keys FIFO
     """
     # prime the cache with a known easy solutions
     if not cache:
-        cache[(0,0,0,.1,.1,.1)] = SCFsolve(sigma=.1,phi_b=.1,segments=50,disp=disp)
-        cache[(0,0,0,0,.1,.1)] = SCFsolve(sigma=0,phi_b=.1,segments=50,disp=disp)
-        cache[(0,0,0,.1,0,.1)] = SCFsolve(sigma=.1,phi_b=0,segments=50,disp=disp)
+        x0 = np.random.normal(0,.001,(1,MINLAT))
+        cache[(0,0,0,.1,.1,.1)] = SCFsolve(wrap_SCFeqns(sigma=.1, phi_b=.1,
+                                           n_avg=50,disp=disp),x0,disp)
+        cache[(0,0,0,0,.1,.1)] = SCFsolve(wrap_SCFeqns(sigma=.0, phi_b=.1,
+                                          n_avg=50,disp=disp),x0,disp)
+        cache[(0,0,0,.1,0,.1)] = SCFsolve(wrap_SCFeqns(sigma=.1, phi_b=.0,
+                                          n_avg=50,disp=disp),x0,disp)
 
     if disp: starttime = time()
 
     # Try to keep the parameters between 0 and 1. Factors are arbitrary.
-    scaled_parameters = (chi,chi_s*3,pdi-1,sigma,phi_b,segments/500)
+    scaled_parameters = (chi,chi_s*3,pdi-1,sigma,phi_b,n_avg/500)
 
     # longshot, but return a cached result if we hit it
     if scaled_parameters in cache:
@@ -186,9 +190,10 @@ def SCFcache(chi,chi_s,pdi,sigma,phi_b,segments,disp=False,cache=_SCFcache_dict)
             print('Parameter step is', step)
             print('current parameters:', p_tup)
 
+        wrapped = wrap_SCFeqns(p_tup[0], p_tup[1]/3, p_tup[2]+1, p_tup[3], p_tup[4],
+                           p_tup[5]*500, disp=disp)
         try:
-            phi = SCFsolve(p_tup[0], p_tup[1]/3, p_tup[2]+1, p_tup[3], p_tup[4],
-                           p_tup[5]*500, disp=disp, phi0=phi)
+            phi = SCFsolve(wrapped, phi)
         except (NoConvergence, ValueError) as e:
             if isinstance(e, ValueError):
                 if str(e) != "array must not contain infs or NaNs":
@@ -213,58 +218,17 @@ def SCFcache(chi,chi_s,pdi,sigma,phi_b,segments,disp=False,cache=_SCFcache_dict)
     return phi
 
 
-def build_chi_cvl(x_av, x_ws, x_vw, x_aw):
-    """ Build an interaction matrix based on a reduced number of parameters
-        and some rules.
+def SCFsolve(field_equations, u_jz_guess, disp=False, maxiter=30):
+    """Solve SCF equations using an initial guess and lattice parameters
 
-        Based on the system from Cohen-Stuart, de Vos, and Leermakers (2006)
+    This function finds a solution for the equations where the lattice size
+    is sufficiently large.
+
+    The Newton-Krylov solver really makes this one. With gmres, it was faster
+    than the other solvers by quite a lot.
     """
-#    x_av=1 # goal: >1
-#    x_ws=-0.6 # goal: -1.5
-#    x_vw = 2.5 # goal: 3.5
-    x_as=x_ws-1
-    x_av=-x_ws
-    x_sv=0
-    return np.array((
-                    (0,x_ws,x_as,x_sv),
-                    (x_ws,0,x_aw,x_vw),
-                    (x_as,x_aw,0,x_av),
-                    (x_sv,x_vw,x_av,0),
-                    ))
-
-
-def SCFsolve_multi(chi_jk, sigma_j, phi_b_j, n_avg_j, pdi_j=None,
-                   phi_jz_solid=None, disp=False, u_jz0=None, maxiter=30):
-    """ Solve SCF equations involving multiple material types using an initial
-        guess and lattice parameters
-
-        This function finds a solution for the equations where the lattice
-        size is sufficiently large.
-    """
-    if np.any(sigma_j >= 1):
-        raise ValueError('Chains that short cannot be squeezed that high')
-    if np.sum(phi_b_j) != 1:
-        raise ValueError('Bulk volume fractions should add up to 1')
 
     if disp: starttime = time()
-
-    if pdi_j is None:
-        p_ji = None
-    else:
-        p_ji = [schultz_zimm(pdi, n_avg) if n_avg > 1 else None
-                for n_avg, pdi in zip(n_avg_j, pdi_j)]
-
-    if u_jz0 is None:
-        u_jz0 = np.zeros((np.sum(n_avg_j != 0),
-                          max(MINLAT, n_avg_j.max()*sqrt(sigma_j.max())),
-                          ))
-        if disp:
-            print('No guess passed, using default u_jz0: '
-                  'types = {}, layers = {}'.format(*u_jz0.shape))
-    else:
-        if disp:
-            print('Initial guess passed: '
-                  'types = {}, layers = {}'.format(*u_jz0.shape))
 
     # resizing loop variables
     jac_solve_method = 'gmres'
@@ -274,16 +238,12 @@ def SCFsolve_multi(chi_jk, sigma_j, phi_b_j, n_avg_j, pdi_j=None,
     # when counting layers_near_phi_b
     tol = 1e-6
 
-    def curried(u_jz):
-        return SCFeqns_multi(u_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji,
-                             phi_jz_solid, dump_phi=False)
-
     while lattice_too_small:
         if disp: print("Solving SCF equations")
 
         try:
-            u_jz = newton_krylov(curried,
-                                 u_jz0,
+            u_jz = newton_krylov(field_equations,
+                                 u_jz_guess,
                                  verbose=bool(disp),
                                  maxiter=maxiter,
                                  method=jac_solve_method,
@@ -300,123 +260,99 @@ def SCFsolve_multi(chi_jk, sigma_j, phi_b_j, n_avg_j, pdi_j=None,
         if disp:
             print('lattice size:', u_jz.shape[1])
 
-        u_deviation = fabs(u_jz).sum(axis=0)
-        layers_near_zero = u_deviation < tol
-        nbulk = np.sum(layers_near_zero)
+        field_deviation = fabs(u_jz).sum(axis=0)
+        layers_near_bulk = field_deviation < tol
+        nbulk = layers_near_bulk.sum()
         lattice_too_small = nbulk < MINBULK
 
         if lattice_too_small:
             # if there aren't enough layers_near_zero, grow the lattice 20%
-            newlayers = max(1, round((u_jz0.shape[1])*0.2))
+            newlayers = max(1, round((u_jz_guess.shape[1])*0.2))
             if disp: print('Growing undersized lattice by', newlayers)
 
+            if newlayers*5 >= 1000:
+                import pdb
+                pdb.set_trace()
             # TODO: comment on inscrutable indexing and stacking
             if nbulk:
-                i = np.diff(layers_near_zero).nonzero()[0].max()
+                i = np.diff(layers_near_bulk).nonzero()[0].max()
             else:
-                i = u_deviation.argmin()
-            u_jz0 = np.hstack((u_jz[:,:i-1],
-                               [np.linspace(u_z[i-1], u_z[i], num=newlayers)
-                                for u_z in u_jz], # XXX: vectorize?
+                i = field_deviation.argmin()
+            u_jz_guess = np.hstack((u_jz[:,:i-1],
+                               [np.linspace(field_z[i-1], field_z[i], num=newlayers)
+                                for field_z in u_jz], # XXX: vectorize?
                                u_jz[:,i:]))
 
     if nbulk > 2*MINBULK:
-        chop_end = np.diff(layers_near_zero).nonzero()[0].max()
+        chop_end = np.diff(layers_near_bulk).nonzero()[0].max()
         chop_start = chop_end - MINBULK
         i = np.arange(u_jz.shape[1])
         u_jz = u_jz[:,(i <= chop_start) | (i > chop_end)]
 
     if disp:
         print("SCFsolve execution time:", round(time()-starttime,3), "s")
+        print('lattice size:', u_jz.shape[1])
 
     return u_jz
 
 
-def SCFsolve(chi=0,chi_s=0,pdi=1,sigma=None,phi_b=0,segments=None,
-             disp=False,phi0=None,maxiter=30):
-    """Solve SCF equations using an initial guess and lattice parameters
+def wrap_SCFeqns_multi(x_av, x_ws, x_vw, sigma_a, phi_b_w, n_avg, pdi=None,
+                       disp=False):
+    """ Accept scalar parameters and return a corresponding field equations
+        function that accepts phi only.
 
-    This function finds a solution for the equations where the lattice size
-    is sufficiently large.
-
-    The Newton-Krylov solver really makes this one. With gmres, it was faster
-    than the other solvers by quite a lot.
+        This wraps SCFeqns_multi, yes, but specifically to simulate a brush
+        swollen by vapor.
+        TODO: better name for this wrapper
     """
 
-    if sigma >= 1:
-        raise ValueError('Chains that short cannot be squeezed that high')
+    # Build an interaction matrix based on a reduced number of parameters and some rules.
+    # Based on the system from Cohen-Stuart, de Vos, and Leermakers (2006)
 
-    if disp: starttime = time()
+#    x_av = 1 # goal: >1
+#    x_ws = -0.6 # goal: -1.5
+#    x_vw = 2.5 # goal: 3.5
+    x_as = x_ws-1
+    x_av = -x_ws
+    x_sv = 0
+    x_aw = 0
+    chi_jk = np.array((
+                       (0.00, x_ws, x_as, x_sv),
+                       (x_ws, 0.00, x_aw, x_vw),
+                       (x_as, x_aw, 0.00, x_av),
+                       (x_sv, x_vw, x_av, 0.00),
+                       ))
 
-    p_i = schultz_zimm(pdi,segments)
+    sigma_j = np.array((0.00, 0.00, sigma_a, 0.00))
+    if np.sum(sigma_j) >= 1:
+        raise ValueError('Surface overloaded with grafted species')
 
-    if phi0 is None:
-        # TODO: Better initial guess for chi>.6
-        phi0 = default_guess(segments,sigma)
-        if disp: print('No guess passed, using default phi0: layers =',len(phi0))
+    phi_b_j = np.array((0.00, phi_b_w, 0.00, 1-phi_b_w))
+    if np.sum(phi_b_j) != 1:
+        raise ValueError('Bulk volume fractions should add up to 1')
+
+    if n_avg < 1:
+        raise ValueError('Invalid number average molecular weight')
+    n_avg_j = np.array((0.00, 1.0, n_avg, 1.0))
+
+    # XXX: this will be useful someday, but for now it's excess work
+#    pdi_j = (None, None, pdi, None)
+#    if pdi_j is None:
+#        p_ji = None
+#    else:
+#        p_ji = [schultz_zimm(pdi, n_avg) if n_avg > 1 else None
+#                for n_avg, pdi in zip(n_avg_j, pdi_j)]
+    if pdi is None:
+        p_ji = None
     else:
-        phi0 = fabs(phi0)
-        phi0[phi0>.99999] = .99999
-        if disp: print("Initial guess passed: layers =", len(phi0))
+        p_ji = (None, None, schultz_zimm(pdi, n_avg), None)
 
-    # resizing loop variables
-    jac_solve_method = 'gmres'
-    lattice_too_small = True
 
-    # We tolerate up to 1 ppm deviation from bulk phi
-    # when counting layers_near_phi_b
-    tol = 1e-6
+    def wrapped_field_equations(u_jz, dump_phi=False):
+        return SCFeqns_multi(u_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji,
+                             dump_phi=dump_phi)
 
-    def curried(phi):
-        return SCFeqns(phi,chi,chi_s,sigma,segments,p_i,phi_b)
-
-    while lattice_too_small:
-        if disp: print("Solving SCF equations")
-
-        try:
-            phi = fabs(newton_krylov(curried,
-                                     phi0,
-                                     verbose=bool(disp),
-                                     maxiter=maxiter,
-                                     method=jac_solve_method,
-                                     ))
-        except RuntimeError as e:
-            if str(e) == 'gmres is not re-entrant':
-                # Threads are racing to use gmres. Lose the race and use
-                # something slower but thread-safe.
-                jac_solve_method = 'lgmres'
-                continue
-            else:
-                raise
-
-        if disp:
-            print('lattice size:', len(phi))
-
-        phi_deviation = fabs(phi - phi_b)
-        layers_near_phi_b = phi_deviation < tol
-        nbulk = np.sum(layers_near_phi_b)
-        lattice_too_small = nbulk < MINBULK
-
-        if lattice_too_small:
-            # if there aren't enough layers_near_phi_b, grow the lattice 20%
-            newlayers = max(1, round(len(phi0)*0.2))
-            if disp: print('Growing undersized lattice by', newlayers)
-            if nbulk:
-                i = np.diff(layers_near_phi_b).nonzero()[0].max()
-            else:
-                i = phi_deviation.argmin()
-            phi0 = np.insert(phi,i,np.linspace(phi[i-1], phi[i], num=newlayers))
-
-    if nbulk > 2*MINBULK:
-        chop_end = np.diff(layers_near_phi_b).nonzero()[0].max()
-        chop_start = chop_end - MINBULK
-        i = np.arange(len(phi))
-        phi = phi[(i <= chop_start) | (i > chop_end)]
-
-    if disp:
-        print("SCFsolve execution time:", round(time()-starttime,3), "s")
-
-    return phi
+    return wrapped_field_equations
 
 
 def SCFeqns_multi(u_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji=None,
@@ -520,8 +456,34 @@ def phi_jz_avg(phi_jz):
 
     return avg
 
+def wrap_SCFeqns(chi=0, chi_s=0, pdi=1, sigma=None, phi_b=0, n_avg=None,
+             disp=False):
+    """ Accept scalar parameters and return a corresponding field equations
+        function that accepts phi only.
 
-def SCFeqns(phi_z, chi, chi_s, sigma, n_avg, p_i, phi_b=0):
+        SCFeqns is a special case requiring the definition of only one species
+        of polymer, so we must squeeze and expand the dimensions of the array
+        to work with SCFsolve.
+        TODO: better name for this wrapper
+    """
+
+    if sigma >= 1:
+        raise ValueError('Chains that short cannot be squeezed that high!')
+
+    if phi_b >=1:
+        raise ValueError('Bulk chain concentration impossibly high!')
+
+    p_i = schultz_zimm(pdi,n_avg)
+
+    # TODO: any utility in using functools.partial?
+    def wrapped_field_equations(phi_z, dump_phi=False):
+        return SCFeqns(phi_z.squeeze(), chi, chi_s, sigma, n_avg, p_i, phi_b,
+                       dump_phi)[None,:]
+
+    return wrapped_field_equations
+
+
+def SCFeqns(u_z, chi, chi_s, sigma, n_avg, p_i, phi_b=0, dump_phi=False):
     """ System of SCF equation for terminally attached polymers.
 
         Formatted for input to a nonlinear minimizer or solver.
@@ -531,22 +493,34 @@ def SCFeqns(phi_z, chi, chi_s, sigma, n_avg, p_i, phi_b=0):
     """
 
     # let the solver go negative if it wants
-    phi_z = fabs(phi_z)
-
-    # calculate new g_z (Boltzmann weighting factors)
-    u_prime = log((1.0 - phi_z)/(1.0 - phi_b))
-    u_int = 2*chi*(correlate(phi_z, LAMBDA_ARRAY, 1)-phi_b)
-    u_int[0] += chi_s
-    u_z = u_prime + u_int
     g_z = exp(u_z)
 
     # normalize g_z for numerical stability
     u_z_avg = np.mean(u_z)
     g_z_norm = g_z/exp(u_z_avg)
 
-    phi_z_new = calc_phi_z(g_z_norm, n_avg, sigma, phi_b, u_z_avg, p_i)
+    phi_z = calc_phi_z(g_z_norm, n_avg, sigma, phi_b, u_z_avg, p_i)
 
-    eps_z = phi_z - phi_z_new
+    if dump_phi:
+        return phi_z
+
+    # penalize attempts that overfill the lattice
+    toomuch = phi_z>.99999
+    penalty_flag = toomuch.any()
+    if penalty_flag:
+        penalty = np.where(toomuch, phi_z-.99999, 0)
+        phi_z[toomuch] = .99999
+
+    # calculate new potentials
+    u_prime = log((1.0 - phi_z)/(1.0 - phi_b))
+    u_int = 2*chi*(correlate(phi_z, LAMBDA_ARRAY, 1)-phi_b)
+    u_int[0] += chi_s
+    u_z_new = u_prime + u_int
+
+    eps_z = u_z - u_z_new
+    if penalty_flag:
+        np.copysign(penalty, eps_z, penalty)
+        eps_z += penalty
 
     return eps_z
 
@@ -648,39 +622,13 @@ class Propagator():
         return np.empty(self.shape, order='F')
 
 
-if 0:
-    u_jz0 = np.zeros((3,100))
+if __name__ == '__main__':
+    u_jz_0 = np.zeros((3,100))
 
-    x_av=1 # goal: >1
-    x_ws=-0.6 # goal: -1.5
-    x_vw = 2.5 # goal: 3.5
-    x_as=x_ws-1
-    x_av=-x_ws
-    x_sv=0
-    x_aw=0
-    chi_jk = np.array((
-                (0,x_ws,x_as,x_sv),
-                (x_ws,0,x_aw,x_vw),
-                (x_as,x_aw,0,x_av),
-                (x_sv,x_vw,x_av,0),
-                ))
-    chi_jk = (1-np.eye(4))*0.10
+    for _ in range(1):
+        f = wrap_SCFeqns_multi(1, -.6, 2.5, .01, .1, 75)
+        ans = SCFsolve(f, u_jz_0, 1)
 
-    sigma_j = np.array((0,0,.01,0))
-    phi_b_j = np.array((0,0.1,0,.9))
-    n_avg_j = np.array((0,1,175,1))
-
-    p_ji = None
-    def curried(phi, dump=0):
-        return SCFeqns_multi(phi,chi_jk, sigma_j, phi_b_j, n_avg_j,
-                             dump_phi=dump)
-
-    start = time()
-    for x in range(10):
-        ans=SCFsolve_multi(chi_jk, sigma_j, phi_b_j, n_avg_j)
-#    ans=newton_krylov(curried,u_jz0,verbose=1, maxiter=None, method='gmres')
-    print(time()-start)
-    print(repr(ans))
-#    import matplotlib.pyplot as plt
-#    phi = SCFeqns_multi(ans,chi_jk, sigma_j, phi_b_j, n_avg_j,dump_phi=1)
-#    plt.plot(phi.T,'x-')
+    import matplotlib.pyplot as plt
+    phi = f(ans, dump_phi=1)
+    plt.plot(phi.T, 'x-')

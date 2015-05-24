@@ -14,7 +14,7 @@ import numpy as np
 
 from util import schultz_zimm
 from scf1d import (SCFprofile, SCFsqueeze, SCFcache, SCFsolve, SCFeqns,
-                   SCFeqns_multi, SCFsolve_multi, Propagator, NoConvergence,
+                   SCFeqns_multi, Propagator, NoConvergence,
                    _SCFcache_dict)
 
 g_zs_data=np.array((
@@ -452,7 +452,8 @@ def SCFcache_test():
          3.36252029e-13,   1.02350919e-13,   3.45522596e-12,
          1.27740977e-11,   8.54541792e-12,   4.00587288e-12,
          1.12745338e-12])
-    result = SCFcache(chi,chi_s,pdi,sigma,phi_b,navgsegments,False)
+    result = SCFcache(chi,chi_s,pdi,sigma,phi_b,navgsegments,1)
+    print(repr(result))
     assert np.allclose(result, data, atol=1e-14)
 
     # check that the cache is holding items
