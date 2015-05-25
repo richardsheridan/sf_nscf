@@ -102,7 +102,7 @@ def meankd(array, axis=None):
 """ BEGIN IMPORT-TIME SHENANIGANS """
 
 # compatability for systems lacking compiler capability
-PYONLY = JIT = False
+CEX = JIT = False
 try:
     from numba import njit
     JIT = True
