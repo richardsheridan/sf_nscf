@@ -32,6 +32,11 @@ LAMBDA_ARRAY = np.array([LAMBDA_1,LAMBDA_0,LAMBDA_1])
 MINLAT = 25
 MINBULK = 5
 
+
+@property
+def NotImplementedAttribute(self):
+    raise NotImplementedError
+
 _sz_dict = OrderedDict()
 def schultz_zimm(pdi,nn,cache=_sz_dict):
     """ Calculate Shultz-Zimm distribution from PDI and number average DP
