@@ -55,7 +55,7 @@ def schultz_zimm(pdi,nn,cache=_sz_dict):
     if pdi == 1.0:
         uniform = True
     elif pdi < 1.0:
-        raise ValueError('Invalid PDI')
+        raise ValueError('Invalid PDI',pdi)
     else:
         x = 1.0/(pdi-1.0)
         # Calculate the distribution in chunks so we don't waste CPU time

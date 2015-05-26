@@ -75,6 +75,7 @@ def SCFprofile(z, chi=None, chi_s=None, h_dry=None, l_lat=1, mn=None,
 
     return phi
 
+
 def SCFsqueeze(chi,chi_s,pdi,sigma,phi_b,segments,layers,disp=False):
     """ Return a self consistent field within a specified number of layers.
 
@@ -104,172 +105,7 @@ def SCFsqueeze(chi,chi_s,pdi,sigma,phi_b,segments,layers,disp=False):
     return phi
 
 
-class BaseSystem(object):
-    """ base class for physical system encapulators
-
-        should produce wrapped field equations from a parameters tuple
-        should cache every valid field equation solution across all instances
-        should have methods for managing the cache without exposing it
-    """
-
-    _cache = NotImplementedAttribute # equivalent of NotImplementedError
-    _cache_limit = 100
-
-    scale = NotImplementedAttribute
-    offset = NotImplementedAttribute
-
-    def __init__(self, disp=False):
-        if not self._cache:
-            self._prime_cache(disp)
-
-    def _prime_cache(self):
-        raise NotImplementedError
-
-    def field_equations(self, parameters):
-        raise NotImplementedError
-
-    def cached(self, key):
-        return key in self._cache
-
-    def from_cache(self, key):
-        self._cache.move_to_end(key)
-        return self._cache[key]
-
-    def add_to_cache(self, key, value):
-        self._cache[key] = value
-        if len(self._cache) > self._cache_limit:
-            self._cache.popitem(last=False)
-
-    def cached_parameters(self):
-        return tuple(dict.__iter__(self._cache))
-
-    def scale_parameters(self, param):
-        return tuple(s*(p-o) for p,s,o in zip(param, self.scale, self.offset))
-
-    def unscale_parameters(self, param):
-        return tuple((p+o)/s for p,s,o in zip(param, self.scale, self.offset))
-
-
-class BasicSystem(BaseSystem):
-    """ Physcal system representing homopolymer solvated by a single solvent
-
-    """
-
-    scale = (1,3,1,1,1/500)
-    offset = (0,0,-1,0,0,0)
-    _cache = OrderedDict()
-
-    def _prime_cache(self, disp=False):
-        x0 = np.random.normal(0,.001,(1,MINLAT))
-
-        p = (0,0,0,.1,.1,.1)
-        fe = self.field_equations(p)
-        self._cache[p] = SCFsolve(fe,x0,disp)
-        p = (0,0,0,0,.1,.1)
-        fe = self.field_equations(p)
-        self._cache[p] = SCFsolve(fe,x0,disp)
-        p = (0,0,0,.1,0,.1)
-        fe = self.field_equations(p)
-        self._cache[p] = SCFsolve(fe,x0,disp)
-
-    def field_equations(self, parameters, scaled=True):
-        if scaled:
-            parameters = self.unscale_parameters(parameters)
-
-        chi, chi_s, pdi, sigma, phi_b, n_avg = parameters
-
-        if sigma >= 1:
-            raise ValueError('Chains that short cannot be squeezed that high!')
-
-        if phi_b >= 1:
-            raise ValueError('Bulk chain concentration impossibly high!')
-
-        p_i = schultz_zimm(pdi,n_avg)
-
-        # TODO: any utility in using functools.partial?
-        def wrapped_field_equations(u_jz, dump_phi=False):
-            return SCFeqns(u_jz.squeeze(), chi, chi_s, sigma, n_avg, p_i, phi_b,
-                           dump_phi)[None,:]
-
-        return wrapped_field_equations
-
-class VaporSwollenSystem(BaseSystem):
-    """ Physcal system representing homopolymer solvated by a single vapor
-        according to Cohen-Stuart, de Vos, and Leermakers (2006)
-
-    """
-
-    scale = (1,)*7
-    offset = (0,)*7
-    _cache = OrderedDict()
-
-    def _prime_cache(self, disp=False):
-        x0 = np.random.normal(0,.001,(3,MINLAT))
-
-        p = (1, -.6, 2.5, .01, .1, 75)
-        fe = self.field_equations(p)
-        self._cache[p] = SCFsolve(fe,x0,disp)
-
-    def field_equations(self, parameters, scaled=True):
-        """ Accept parameters and return the corresponding field equations
-            (a function that requires one argument, a 2D ndarray).
-
-            This wraps SCFeqns_multi, yes, but specifically to simulate a brush
-            swollen by vapor.
-            TODO: better name for this wrapper
-        """
-        if scaled:
-            parameters = self.unscale_parameters(parameters)
-
-        x_av, x_ws, x_vw, sigma_a, phi_b_w, n_avg, pdi = parameters
-
-        # Build an interaction matrix
-    #    x_av = 1 # goal: >1
-    #    x_ws = -0.6 # goal: -1.5
-    #    x_vw = 2.5 # goal: 3.5
-        x_as = x_ws-1
-        x_av = -x_ws
-        x_sv = 0
-        x_aw = 0
-        chi_jk = np.array((
-                           (0.00, x_ws, x_as, x_sv),
-                           (x_ws, 0.00, x_aw, x_vw),
-                           (x_as, x_aw, 0.00, x_av),
-                           (x_sv, x_vw, x_av, 0.00),
-                           ))
-
-        sigma_j = np.array((0.00, 0.00, sigma_a, 0.00))
-        if np.sum(sigma_j) >= 1:
-            raise ValueError('Surface overloaded with grafted species')
-
-        phi_b_j = np.array((0.00, phi_b_w, 0.00, 1-phi_b_w))
-        if np.sum(phi_b_j) != 1:
-            raise ValueError('Bulk volume fractions should add up to 1')
-
-        if n_avg < 1:
-            raise ValueError('Invalid number average molecular weight')
-        n_avg_j = np.array((0.00, 1.0, n_avg, 1.0))
-
-        # XXX: this will be useful someday, but for now it's excess work
-    #    pdi_j = (None, None, pdi, None)
-    #    if pdi_j is None:
-    #        p_ji = None
-    #    else:
-    #        p_ji = [schultz_zimm(pdi, n_avg) if n_avg > 1 else None
-    #                for n_avg, pdi in zip(n_avg_j, pdi_j)]
-        if pdi is None:
-            p_ji = None
-        else:
-            p_ji = (None, None, schultz_zimm(pdi, n_avg), None)
-
-
-        def wrapped_field_equations(u_jz, dump_phi=False):
-            return SCFeqns_multi(u_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji,
-                                 dump_phi)
-
-        return wrapped_field_equations
-
-def SCFwalk(scaled_parameters, field_equations_wrapper, cache, disp=False):
+def SCFwalk(scaled_parameters, system, disp=False):
     """Return a memoized SCF result by walking from a previous solution.
 
     Using an OrderedDict because I want to prune keys FIFO
@@ -278,15 +114,14 @@ def SCFwalk(scaled_parameters, field_equations_wrapper, cache, disp=False):
     if disp: starttime = time()
 
     # longshot, but return a cached result if we hit it
-    if scaled_parameters in cache:
+    if system.in_cache(scaled_parameters):
         if disp: print('cache hit at:', scaled_parameters)
-        cache.move_to_end(scaled_parameters)
-        return cache[scaled_parameters]
+        return system.from_cache(scaled_parameters)
 
     # Find the closest parameters in the cache: O(len(cache))
 
     # Numpy setup
-    cached_parameters = tuple(dict.__iter__(cache))
+    cached_parameters = system.cached_parameters()
     cp_array = np.array(cached_parameters)
     p_array = np.array(scaled_parameters)
 
@@ -299,8 +134,7 @@ def SCFwalk(scaled_parameters, field_equations_wrapper, cache, disp=False):
     closest_cp_array = cp_array[closest_index]
     closest_delta = deltas[closest_index]
 
-    cache.move_to_end(closest_cp)
-    u = cache[closest_cp]
+    u = system.from_cache(closest_cp)
 
     if disp:
         print("Walking from nearest:", closest_cp_array)
@@ -342,9 +176,9 @@ def SCFwalk(scaled_parameters, field_equations_wrapper, cache, disp=False):
             print('Parameter step is', step)
             print('current parameters:', p_tup)
 
-        wrapped = field_equations_wrapper(p_tup)
+        fe = system.field_equations(p_tup)
         try:
-            u = SCFsolve(wrapped, u, disp)
+            u = SCFsolve(fe, u, disp)
         except (NoConvergence, ValueError) as e:
             if isinstance(e, ValueError):
                 if str(e) != "array must not contain infs or NaNs":
@@ -356,15 +190,11 @@ def SCFwalk(scaled_parameters, field_equations_wrapper, cache, disp=False):
             if dstep < 1e-5:
                 raise RuntimeError('Cache walk appears to be stuck')
         else: # Belongs to try, executes if no exception is raised
-            cache[p_tup] = u
+            system.add_to_cache(p_tup, u)
             dstep *= 1.05
             step += dstep
 
     if disp: print('SCFwalk execution time:', round(time()-starttime,3), "s")
-
-    # keep the cache from consuming all things
-    while len(cache)>1000:
-        cache.popitem(last=False)
 
     return u
     # maybe
@@ -449,7 +279,170 @@ def SCFsolve(field_equations, u_jz_guess, disp=False, maxiter=30):
     return u_jz
 
 
+class BaseSystem(object):
+    """ base class for physical system encapulators
 
+        should produce wrapped field equations from a parameters tuple
+        should cache every valid field equation solution across all instances
+        should have methods for managing the cache without exposing it
+    """
+
+    _cache = NotImplementedAttribute # equivalent of NotImplementedError
+    _cache_limit = 100
+
+    _scale = NotImplementedAttribute
+    _offset = NotImplementedAttribute
+
+    def __init__(self, disp=False):
+        if not self._cache:
+            self._prime_cache(disp)
+
+    def _prime_cache(self):
+        raise NotImplementedError
+
+    def field_equations(self, parameters):
+        raise NotImplementedError
+
+    def in_cache(self, key):
+        return key in self._cache
+
+    def from_cache(self, key):
+        self._cache.move_to_end(key)
+        return self._cache[key]
+
+    def add_to_cache(self, key, value):
+        self._cache[key] = value
+        if len(self._cache) > self._cache_limit:
+            self._cache.popitem(last=False)
+
+    def cached_parameters(self):
+        return tuple(dict.__iter__(self._cache))
+
+    def scale_parameters(self, param):
+        return tuple(s*(p-o) for p,s,o in zip(param, self._scale, self._offset))
+
+    def unscale_parameters(self, param):
+        return tuple(p/s+o for p,s,o in zip(param, self._scale, self._offset))
+
+
+class BasicSystem(BaseSystem):
+    """ Physcal system representing homopolymer solvated by a single solvent
+
+    """
+
+    _scale = (1,3,1,1,1,1/500)
+    _offset = (0,0,1,0,0,0)
+    _cache = OrderedDict()
+
+    def _prime_cache(self, disp=False):
+        x0 = np.random.normal(0,.001,(1,MINLAT))
+
+        p = (0,0,0,.1,.1,.1)
+        fe = self.field_equations(p)
+        self._cache[p] = SCFsolve(fe,x0,disp)
+        p = (0,0,0,0,.1,.1)
+        fe = self.field_equations(p)
+        self._cache[p] = SCFsolve(fe,x0,disp)
+        p = (0,0,0,.1,0,.1)
+        fe = self.field_equations(p)
+        self._cache[p] = SCFsolve(fe,x0,disp)
+
+    def field_equations(self, parameters, scaled=True):
+        if scaled:
+            parameters = self.unscale_parameters(parameters)
+        print(parameters)
+        chi, chi_s, pdi, sigma, phi_b, n_avg = parameters
+
+        if sigma >= 1:
+            raise ValueError('Chains that short cannot be squeezed that high!')
+
+        if phi_b >= 1:
+            raise ValueError('Bulk chain concentration impossibly high!')
+
+        p_i = schultz_zimm(pdi,n_avg)
+
+        # TODO: any utility in using functools.partial?
+        def wrapped_field_equations(u_jz, dump_phi=False):
+            return SCFeqns(u_jz.squeeze(), chi, chi_s, sigma, n_avg, p_i, phi_b,
+                           dump_phi)[None,:]
+
+        return wrapped_field_equations
+
+
+class VaporSwollenSystem(BaseSystem):
+    """ Physcal system representing homopolymer solvated by a single vapor
+        according to Cohen-Stuart, de Vos, and Leermakers (2006)
+
+    """
+
+    _scale = (1,)*7
+    _offset = (0,)*7
+    _cache = OrderedDict()
+
+    def _prime_cache(self, disp=False):
+        x0 = np.random.normal(0,.001,(3,MINLAT))
+
+        p = (1, -.6, 2.5, .01, .1, 75, 1)
+        fe = self.field_equations(p)
+        self._cache[p] = SCFsolve(fe,x0,disp)
+
+    def field_equations(self, parameters, scaled=True):
+        """ Accept parameters and return the corresponding field equations
+            (a function that requires one argument, a 2D ndarray).
+
+            This wraps SCFeqns_multi, yes, but specifically to simulate a brush
+            swollen by vapor.
+        """
+        if scaled:
+            parameters = self.unscale_parameters(parameters)
+
+        x_av, x_ws, x_vw, sigma_a, phi_b_w, n_avg, pdi = parameters
+
+        # Build an interaction matrix
+    #    x_av = 1 # goal: >1
+    #    x_ws = -0.6 # goal: -1.5
+    #    x_vw = 2.5 # goal: 3.5
+        x_as = x_ws-1
+        x_av = -x_ws
+        x_sv = 0
+        x_aw = 0
+        chi_jk = np.array((
+                           (0.00, x_ws, x_as, x_sv),
+                           (x_ws, 0.00, x_aw, x_vw),
+                           (x_as, x_aw, 0.00, x_av),
+                           (x_sv, x_vw, x_av, 0.00),
+                           ))
+
+        sigma_j = np.array((0.00, 0.00, sigma_a, 0.00))
+        if np.sum(sigma_j) >= 1:
+            raise ValueError('Surface overloaded with grafted species')
+
+        phi_b_j = np.array((0.00, phi_b_w, 0.00, 1-phi_b_w))
+        if np.sum(phi_b_j) != 1:
+            raise ValueError('Bulk volume fractions should add up to 1')
+
+        if n_avg < 1:
+            raise ValueError('Invalid number average molecular weight')
+        n_avg_j = np.array((0.00, 1.0, n_avg, 1.0))
+
+        # XXX: this will be useful someday, but for now it's excess work
+    #    pdi_j = (None, None, pdi, None)
+    #    if pdi_j is None:
+    #        p_ji = None
+    #    else:
+    #        p_ji = [schultz_zimm(pdi, n_avg) if n_avg > 1 else None
+    #                for n_avg, pdi in zip(n_avg_j, pdi_j)]
+        if pdi is None:
+            p_ji = None
+        else:
+            p_ji = (None, None, schultz_zimm(pdi, n_avg), None)
+
+
+        def wrapped_field_equations(u_jz, dump_phi=False):
+            return SCFeqns_multi(u_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji,
+                                 None, dump_phi)
+
+        return wrapped_field_equations
 
 
 def SCFeqns_multi(u_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji=None,
@@ -516,12 +509,12 @@ def SCFeqns_multi(u_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji=None,
     eps_jz = (u_prime_jz - meankd(u_prime_jz, axis=0)) + (1 - sumkd(phi_jz, axis=0))
 
 #    import matplotlib.pyplot as plt
-
+#
 #    plt.subplot(311)
 #    plt.cla()
 #    plt.plot(u_jz.T)
 #    plt.legend((0,1,2,3))
-
+#
 #    plt.subplot(312)
 #    plt.cla()
 #    plt.plot(phi_jz.T)
@@ -529,7 +522,7 @@ def SCFeqns_multi(u_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji=None,
 #    plt.subplot(313)
 #    plt.cla()
 #    plt.plot(eps_jz.T)
-
+#
 #    plt.draw()
 #    plt.show(block=0)
 
@@ -552,36 +545,6 @@ def phi_jz_avg(phi_jz):
 #    avg[types-1,layers-1] += LAMBDA_1
 
     return avg
-
-def wrap_SCFeqns(parameters, scaled=True):
-    """ Accept scaled parameters and return the corresponding field equations
-        (a function that requires one argument, a 2D ndarray).
-
-        SCFeqns is a special case requiring the definition of only one species
-        of polymer, so we must squeeze and expand the dimensions of the array
-        to work with SCFsolve.
-        TODO: better name for this wrapper
-    """
-
-    if scaled:
-        parameters = unscale_params_SCFeqns(parameters)
-
-    chi, chi_s, pdi, sigma, phi_b, n_avg = parameters
-
-    if sigma >= 1:
-        raise ValueError('Chains that short cannot be squeezed that high!')
-
-    if phi_b >= 1:
-        raise ValueError('Bulk chain concentration impossibly high!')
-
-    p_i = schultz_zimm(pdi,n_avg)
-
-    # TODO: any utility in using functools.partial?
-    def wrapped_field_equations(u_jz, dump_phi=False):
-        return SCFeqns(u_jz.squeeze(), chi, chi_s, sigma, n_avg, p_i, phi_b,
-                       dump_phi)[None,:]
-
-    return wrapped_field_equations
 
 
 def SCFeqns(u_z, chi, chi_s, sigma, n_avg, p_i, phi_b=0, dump_phi=False):
@@ -723,12 +686,21 @@ class Propagator():
 
 
 if __name__ == '__main__':
-    u_jz_0 = np.zeros((3,100))
+#    bs = BasicSystem()
+#    param = 0,0,1,.1,0,160.52
+#    param = bs.scale_parameters(param)
+#    for _ in range(1):
+#        ans = SCFwalk(param, bs, 1)
+#
+#    import matplotlib.pyplot as plt
+#    phi = bs.field_equations(param)(ans, dump_phi=1)
+#    plt.plot(phi.T, 'x-')
 
-    for _ in range(1):
-        f = wrap_SCFeqns_multi(1, -.6, 2.5, .01, .1, 75)
-        ans = SCFsolve(f, u_jz_0, 1)
-
+    vs = VaporSwollenSystem()
+    param = (1, -1.5, 3.5, .01, .1, 75, 1)
+    param = vs.scale_parameters(param)
+    ans=SCFwalk(param, vs,1)
+    phi = vs.field_equations(param)(ans, dump_phi=1)
     import matplotlib.pyplot as plt
-    phi = f(ans, dump_phi=1)
-    plt.plot(phi.T, 'x-')
+    plt.figure()
+    plt.plot(phi.T)
