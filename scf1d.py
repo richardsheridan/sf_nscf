@@ -58,7 +58,10 @@ def SCFprofile(z, chi=None, chi_s=None, h_dry=None, l_lat=1, mn=None,
 
     # solve the self consistent field equations using the cache
     if disp: print("\n=====Begin calculations=====\n")
-    phi_lat = SCFcache(chi,chi_s,pdi,sigma,phi_b,segments,disp)
+    bs = BasicSystem()
+    parameters = bs.scale_parameters((chi,chi_s,pdi,sigma,phi_b,segments))
+    u = SCFwalk(parameters,bs,disp)
+    phi_lat = bs.field_equations(parameters)(u, 1)
     if disp: print("\n============================\n")
 
     # Chop edge effects out
@@ -81,26 +84,29 @@ def SCFsqueeze(chi,chi_s,pdi,sigma,phi_b,segments,layers,disp=False):
 
 
     """
-
-    phi = SCFcache(chi,chi_s,pdi,sigma,phi_b,segments,disp)
-    squeezing = layers - len(phi) < 0
+    bs = BasicSystem()
+    parameters = bs.scale_parameters((chi,chi_s,pdi,sigma,phi_b,segments))
+    u = SCFwalk(parameters,bs,disp)
+    squeezing = layers - len(u) < 0
 
     p_i = schultz_zimm(pdi,segments)
     jac_solve_method = 'gmres'
     def curried(phi):
         return SCFeqns(phi,chi,chi_s,sigma,segments,p_i,phi_b)
 
-    while layers - len(phi):
+    while layers - len(u):
         if squeezing:
-            phi = np.delete(phi, -1)
+            u = np.delete(u, -1)
         else:
-            phi = np.append(phi, phi[-1])
-        phi = fabs(newton_krylov(curried,
-                                 phi,
+            u = np.append(u, u[-1])
+        u = newton_krylov(bs.field_equations(),
+                                 u,
                                  verbose=bool(disp),
                                  maxiter=30,
                                  method=jac_solve_method,
-                                 ))
+                                 )
+
+    phi = bs.field_equations(parameters)(u, 1)
 
     return phi
 
@@ -348,9 +354,12 @@ class BasicSystem(BaseSystem):
         self._cache[p] = SCFsolve(fe,x0,disp)
 
     def field_equations(self, parameters, scaled=True):
+        """ Accept parameters and return the corresponding field equations
+            (a function that requires one argument, a 2D ndarray).
+        """
         if scaled:
             parameters = self.unscale_parameters(parameters)
-        print(parameters)
+
         chi, chi_s, pdi, sigma, phi_b, n_avg = parameters
 
         if sigma >= 1:
@@ -389,9 +398,6 @@ class VaporSwollenSystem(BaseSystem):
     def field_equations(self, parameters, scaled=True):
         """ Accept parameters and return the corresponding field equations
             (a function that requires one argument, a 2D ndarray).
-
-            This wraps SCFeqns_multi, yes, but specifically to simulate a brush
-            swollen by vapor.
         """
         if scaled:
             parameters = self.unscale_parameters(parameters)

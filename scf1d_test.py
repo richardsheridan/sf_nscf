@@ -13,9 +13,8 @@ from __future__ import division, print_function
 import numpy as np
 
 from util import schultz_zimm
-from scf1d import (SCFprofile, SCFsqueeze, SCFcache, SCFsolve, SCFeqns,
-                   SCFeqns_multi, Propagator, NoConvergence,
-                   _SCFcache_dict)
+from scf1d import (SCFprofile, SCFsqueeze, SCFwalk, SCFsolve, SCFeqns,
+                   SCFeqns_multi, Propagator, NoConvergence)
 
 g_zs_data=np.array((
    ( 0.90000000,  0.67833333,  0.53457407,  0.43538321,  0.36346252,
