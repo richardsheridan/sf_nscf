@@ -61,7 +61,7 @@ def SCFprofile(z, chi=None, chi_s=None, h_dry=None, l_lat=1, mn=None,
     bs = BasicSystem()
     parameters = bs.scale_parameters((chi,chi_s,pdi,sigma,phi_b,segments))
     u = SCFwalk(parameters,bs,disp)
-    phi_lat = bs.field_equations(parameters)(u, 1)
+    phi_lat = bs.field_equations(parameters)(u, 1).squeeze()
     if disp: print("\n============================\n")
 
     # Chop edge effects out
@@ -86,25 +86,22 @@ def SCFsqueeze(chi,chi_s,pdi,sigma,phi_b,segments,layers,disp=False):
     """
     bs = BasicSystem()
     parameters = bs.scale_parameters((chi,chi_s,pdi,sigma,phi_b,segments))
-    u = SCFwalk(parameters,bs,disp)
+    u = SCFwalk(parameters,bs,disp).squeeze()
     squeezing = layers - len(u) < 0
 
-    p_i = schultz_zimm(pdi,segments)
     jac_solve_method = 'gmres'
-    def curried(phi):
-        return SCFeqns(phi,chi,chi_s,sigma,segments,p_i,phi_b)
-
     while layers - len(u):
         if squeezing:
             u = np.delete(u, -1)
         else:
             u = np.append(u, u[-1])
-        u = newton_krylov(bs.field_equations(),
-                                 u,
+        u = newton_krylov(bs.field_equations(parameters),
+                                 u[None,:],
                                  verbose=bool(disp),
                                  maxiter=30,
                                  method=jac_solve_method,
-                                 )
+                                 ).squeeze()
+
 
     phi = bs.field_equations(parameters)(u, 1)
 
@@ -691,7 +688,7 @@ class Propagator():
         return np.empty(self.shape, order='F')
 
 
-if __name__ == '__main__':
+if 0: # __name__ == '__main__':
 #    bs = BasicSystem()
 #    param = 0,0,1,.1,0,160.52
 #    param = bs.scale_parameters(param)
@@ -703,7 +700,7 @@ if __name__ == '__main__':
 #    plt.plot(phi.T, 'x-')
 
     vs = VaporSwollenSystem()
-    param = (1, -1.5, 3.5, .01, .1, 75, 1)
+    param = (.1, -.15, .35, .01, .1, 75, 1)
     param = vs.scale_parameters(param)
     ans=SCFwalk(param, vs,1)
     phi = vs.field_equations(param)(ans, dump_phi=1)
