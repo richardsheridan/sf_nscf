@@ -200,8 +200,6 @@ def SCFwalk(scaled_parameters, system, disp=False):
     if disp: print('SCFwalk execution time:', round(time()-starttime,3), "s")
 
     return u
-    # maybe
-    # return wrapped(u,dump_phi=True)
 
 
 def SCFsolve(field_equations, u_jz_guess, disp=False, maxiter=30):
@@ -395,6 +393,12 @@ class VaporSwollenSystem(BaseSystem):
     def field_equations(self, parameters, scaled=True):
         """ Accept parameters and return the corresponding field equations
             (a function that requires one argument, a 2D ndarray).
+
+            x_av = air-vapor chi.  goal: >1
+            x_ws = water-surface chi.  goal: -1.5
+            x_vw = vapor-water chi.  goal: 3.5
+
+            parameters = x_av, x_ws, x_vw, sigma_a, phi_b_w, n_avg, pdi
         """
         if scaled:
             parameters = self.unscale_parameters(parameters)
@@ -402,9 +406,7 @@ class VaporSwollenSystem(BaseSystem):
         x_av, x_ws, x_vw, sigma_a, phi_b_w, n_avg, pdi = parameters
 
         # Build an interaction matrix
-    #    x_av = 1 # goal: >1
-    #    x_ws = -0.6 # goal: -1.5
-    #    x_vw = 2.5 # goal: 3.5
+
         x_as = x_ws-1
         x_av = -x_ws
         x_sv = 0
@@ -466,9 +468,6 @@ def SCFeqns_multi(u_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji=None,
         p_ji and phi_jz_solid can be lists or dicts of arrays
         instead of 2D arrays if sparsity is a concern.
 
-        plenty of inputs don't converge with raw newton_krylov
-        TODO: create scfcache equivalent
-
         Does this agree with SCFeqns?
         TODO: plot differences at a variety of solutions
     """
@@ -510,24 +509,6 @@ def SCFeqns_multi(u_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji=None,
 
     # HINT: Don't try to square these errors, it prevents solution
     eps_jz = (u_prime_jz - meankd(u_prime_jz, axis=0)) + (1 - sumkd(phi_jz, axis=0))
-
-#    import matplotlib.pyplot as plt
-#
-#    plt.subplot(311)
-#    plt.cla()
-#    plt.plot(u_jz.T)
-#    plt.legend((0,1,2,3))
-#
-#    plt.subplot(312)
-#    plt.cla()
-#    plt.plot(phi_jz.T)
-#
-#    plt.subplot(313)
-#    plt.cla()
-#    plt.plot(eps_jz.T)
-#
-#    plt.draw()
-#    plt.show(block=0)
 
     return eps_jz
 
@@ -688,7 +669,7 @@ class Propagator():
         return np.empty(self.shape, order='F')
 
 
-if 0: # __name__ == '__main__':
+if 0:# __name__ == '__main__':
 #    bs = BasicSystem()
 #    param = 0,0,1,.1,0,160.52
 #    param = bs.scale_parameters(param)
