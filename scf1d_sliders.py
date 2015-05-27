@@ -8,7 +8,8 @@ Created on Tue Dec  9 16:38:03 2014
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
-from scf1d import SCFcache
+from scf1d import SCFwalk, BasicSystem
+bs = BasicSystem()
 
 def update(val):
     chi = chi_sl.val
@@ -17,7 +18,9 @@ def update(val):
     sigma = 10**sigma_sl.val
     phi_b = phi_b_sl.val
     nn = nn_sl.val
-    phi = SCFcache(chi,chi_s,pdi,sigma,phi_b,nn)
+    p = bs.scale_parameters((chi,chi_s,pdi,sigma,phi_b,nn))
+    u = SCFwalk(p,bs)
+    phi = bs.field_equations(p)(u,1).T
     z = np.arange(1,len(phi)+1)
     mainplot.set_ydata(phi)
     mainplot.set_xdata(z)
@@ -26,7 +29,10 @@ def update(val):
 
 fig, ax = plt.subplots(figsize=(8,10))
 fig.subplots_adjust(left=0.10, bottom=0.5)
-mainplot,=ax.plot(SCFcache(0,0,1,.1,0,200))
+p = bs.scale_parameters((0,0,1,.1,0,200))
+u = SCFwalk(p,bs)
+phi = bs.field_equations(p)(u,1).T
+mainplot,=ax.plot(phi)
 ax.set_ylabel(r'$\phi$')
 ax.set_xlabel('layer')
 

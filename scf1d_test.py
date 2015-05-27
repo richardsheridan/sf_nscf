@@ -624,8 +624,8 @@ def SCFprofile_test():
 
 def benchmark():
     from time import clock
-    start=clock()
     BasicSystem._cache.clear()
+    start=clock()
     bs = BasicSystem()
     p = bs.scale_parameters((0,0,1,.1,0,160.52))
     SCFwalk(p,bs)
