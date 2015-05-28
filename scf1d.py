@@ -140,8 +140,8 @@ def SCFwalk(scaled_parameters, system, disp=False):
     u = system.from_cache(closest_cp)
 
     if disp:
-        print("Walking from nearest:", closest_cp_array)
-        print("to:", p_array)
+        print("Walking from nearest:", closest_cp)
+        print("to:", scaled_parameters)
 
     """
     We must walk from the previously cached point to the desired region.
