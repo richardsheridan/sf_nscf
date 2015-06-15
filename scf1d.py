@@ -160,9 +160,6 @@ def SCFsolve(field_equations, u_jz_guess, disp=False, maxiter=30):
             newlayers = max(1, round((u_jz_guess.shape[1])*0.2))
             if disp: print('Growing undersized lattice by', newlayers)
 
-            if newlayers*5 >= 1000:
-                import pdb
-                pdb.set_trace()
             # TODO: comment on inscrutable indexing and stacking
             if nbulk:
                 i = np.diff(layers_near_bulk).nonzero()[0].max()
