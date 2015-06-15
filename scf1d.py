@@ -59,8 +59,8 @@ def SCFprofile(z, chi=None, chi_s=None, h_dry=None, l_lat=1, mn=None,
     # solve the self consistent field equations using the cache
     if disp: print("\n=====Begin calculations=====\n")
     bs = BasicSystem()
-    parameters = bs.scale_parameters((chi,chi_s,pdi,sigma,phi_b,segments))
-    u = SCFwalk(parameters,bs,disp)
+    parameters = (chi,chi_s,pdi,sigma,phi_b,segments)
+    u = bs.walk(parameters,disp)
     phi_lat = bs.field_equations(parameters)(u, 1).squeeze()
     if disp: print("\n============================\n")
 
@@ -85,8 +85,8 @@ def SCFsqueeze(chi,chi_s,pdi,sigma,phi_b,segments,layers,disp=False):
 
     """
     bs = BasicSystem()
-    parameters = bs.scale_parameters((chi,chi_s,pdi,sigma,phi_b,segments))
-    u = SCFwalk(parameters,bs,disp).squeeze()
+    parameters = (chi,chi_s,pdi,sigma,phi_b,segments)
+    u = bs.walk(parameters,disp).squeeze()
     squeezing = layers - len(u) < 0
 
     jac_solve_method = 'gmres'
@@ -103,103 +103,9 @@ def SCFsqueeze(chi,chi_s,pdi,sigma,phi_b,segments,layers,disp=False):
                                  ).squeeze()
 
 
-    phi = bs.field_equations(parameters)(u, 1)
+    phi = bs.field_equations(parameters)(u,1).squeeze()
 
     return phi
-
-
-def SCFwalk(scaled_parameters, system, disp=False):
-    """Return a memoized SCF result by walking from a previous solution.
-
-    Using an OrderedDict because I want to prune keys FIFO
-    """
-
-    if disp: starttime = time()
-
-    # longshot, but return a cached result if we hit it
-    if system.in_cache(scaled_parameters):
-        if disp: print('cache hit at:', scaled_parameters)
-        return system.from_cache(scaled_parameters)
-
-    # Find the closest parameters in the cache: O(len(cache))
-
-    # Numpy setup
-    cached_parameters = system.cached_parameters()
-    cp_array = np.array(cached_parameters)
-    p_array = np.array(scaled_parameters)
-
-    # Calculate distances to all cached parameters
-    deltas = p_array - cp_array # Parameter space displacement vectors
-    closest_index = np.sum(deltas*deltas,axis=1).argmin()
-
-    # Organize closest point data for later use
-    closest_cp = cached_parameters[closest_index]
-    closest_cp_array = cp_array[closest_index]
-    closest_delta = deltas[closest_index]
-
-    u = system.from_cache(closest_cp)
-
-    if disp:
-        print("Walking from nearest:", closest_cp)
-        print("to:", scaled_parameters)
-
-    """
-    We must walk from the previously cached point to the desired region.
-    This is goes from step=0 (cached) and step=1 (finish), where the step=0
-    is implicit above. We try the full step first, so that this function only
-    calls SCFsolve one time during normal cache misses.
-
-    The solver may not converge if the step size is too big. In that case,
-    we retry with half the step size. This should find the edge of the basin
-    of attraction for the solution eventually. On successful steps we increase
-    stepsize slightly to accelerate after getting stuck.
-
-    It might seem to make sense to bin parameters into a coarser grid, so we
-    would be more likely to have cache hits and use them, but this rarely
-    happened in practice.
-    """
-
-    step = 1.0 # Fractional distance between cached and requested
-    dstep = 1.0 # Step size increment
-    flag = True
-
-    while flag:
-        # end on 1.0 exactly every time
-        if step >= 1.0:
-            step = 1.0
-            flag = False
-
-        # conditional math because, "why risk floating point error"
-        if flag:
-            p_tup = tuple(closest_cp_array + step*closest_delta)
-        else:
-            p_tup = scaled_parameters
-
-        if disp:
-            print('Parameter step is', step)
-            print('current parameters:', p_tup)
-
-        fe = system.field_equations(p_tup)
-        try:
-            u = SCFsolve(fe, u, disp)
-        except (NoConvergence, ValueError) as e:
-            if isinstance(e, ValueError):
-                if str(e) != "array must not contain infs or NaNs":
-                    raise
-            if disp: print('Step failed')
-            flag = True # Reset this so we don't quit if step=1.0 fails
-            dstep *= .5
-            step -= dstep
-            if dstep < 1e-5:
-                raise RuntimeError('Cache walk appears to be stuck')
-        else: # Belongs to try, executes if no exception is raised
-            system.add_to_cache(p_tup, u)
-            dstep *= 1.05
-            step += dstep
-
-    if disp: print('SCFwalk execution time:', round(time()-starttime,3), "s")
-
-    return u
 
 
 def SCFsolve(field_equations, u_jz_guess, disp=False, maxiter=30):
@@ -286,6 +192,8 @@ class BaseSystem(object):
         should produce wrapped field equations from a parameters tuple
         should cache every valid field equation solution across all instances
         should have methods for managing the cache without exposing it
+        manages scaling of parameters for the cache so the user never
+        sees scaled parameters
     """
 
     _cache = NotImplementedAttribute # equivalent of NotImplementedError
@@ -325,6 +233,101 @@ class BaseSystem(object):
     def unscale_parameters(self, param):
         return tuple(p/s+o for p,s,o in zip(param, self._scale, self._offset))
 
+    def walk(self, unscaled_parameters, disp=False):
+        """Return a memoized SCF result by walking from a previous solution.
+
+        """
+
+        if disp: starttime = time()
+
+        scaled_parameters = self.scale_parameters(unscaled_parameters)
+
+        # longshot, but return a cached result if we hit it
+        if self.in_cache(scaled_parameters):
+            if disp: print('cache hit at:', unscaled_parameters)
+            return self.from_cache(scaled_parameters)
+
+        # Find the closest parameters in the cache: O(len(cache))
+
+        # Numpy setup
+        cached_parameters = self.cached_parameters()
+        cp_array = np.array(cached_parameters)
+        p_array = np.array(scaled_parameters)
+
+        # Calculate distances to all cached parameters
+        deltas = p_array - cp_array # Parameter space displacement vectors
+        closest_index = np.sum(deltas*deltas,axis=1).argmin()
+
+        # Organize closest point data for later use
+        closest_cp = cached_parameters[closest_index]
+        closest_cp_array = cp_array[closest_index]
+        closest_delta = deltas[closest_index]
+
+        u = self.from_cache(closest_cp)
+
+        if disp:
+            print("Walking from nearest:", self.unscale_parameters(closest_cp))
+            print("to:", unscaled_parameters)
+
+        """
+        We must walk from the previously cached point to the desired region.
+        This is goes from step=0 (cached) and step=1 (finish), where the step=0
+        is implicit above. We try the full step first, so that this function only
+        calls SCFsolve one time during normal cache misses.
+
+        The solver may not converge if the step size is too big. In that case,
+        we retry with half the step size. This should find the edge of the basin
+        of attraction for the solution eventually. On successful steps we increase
+        stepsize slightly to accelerate after getting stuck.
+
+        It might seem to make sense to bin parameters into a coarser grid, so we
+        would be more likely to have cache hits and use them, but this rarely
+        happened in practice.
+        """
+
+        step = 1.0 # Fractional distance between cached and requested
+        dstep = 1.0 # Step size increment
+        flag = True
+
+        while flag:
+            # end on 1.0 exactly every time
+            if step >= 1.0:
+                step = 1.0
+                flag = False
+
+            # conditional math because, "why risk floating point error"
+            if flag:
+                p_tup = tuple(closest_cp_array + step*closest_delta)
+            else:
+                p_tup = scaled_parameters
+
+            up_tup = self.unscale_parameters(p_tup)
+            if disp:
+                print('Parameter step is', step)
+                print('current parameters:', up_tup)
+
+            fe = self.field_equations(up_tup)
+            try:
+                u = SCFsolve(fe, u, disp)
+            except (NoConvergence, ValueError) as e:
+                if isinstance(e, ValueError):
+                    if str(e) != "array must not contain infs or NaNs":
+                        raise
+                if disp: print('Step failed')
+                flag = True # Reset this so we don't quit if step=1.0 fails
+                dstep *= .5
+                step -= dstep
+                if dstep < 1e-5:
+                    raise RuntimeError('Cache walk appears to be stuck')
+            else: # Belongs to try, executes if no exception is raised
+                self.add_to_cache(p_tup, u)
+                dstep *= 1.05
+                step += dstep
+
+        if disp: print('walk execution time:', round(time()-starttime,3), "s")
+
+        return u
+
 
 class BasicSystem(BaseSystem):
     """ Physcal system representing homopolymer solvated by a single solvent
@@ -339,21 +342,22 @@ class BasicSystem(BaseSystem):
         x0 = np.random.normal(0,.001,(1,MINLAT))
 
         p = (0,0,0,.1,.1,.1)
-        fe = self.field_equations(p)
+        up = self.unscale_parameters(p)
+        fe = self.field_equations(up)
         self._cache[p] = SCFsolve(fe,x0,disp)
         p = (0,0,0,0,.1,.1)
-        fe = self.field_equations(p)
+        up = self.unscale_parameters(p)
+        fe = self.field_equations(up)
         self._cache[p] = SCFsolve(fe,x0,disp)
         p = (0,0,0,.1,0,.1)
-        fe = self.field_equations(p)
+        up = self.unscale_parameters(p)
+        fe = self.field_equations(up)
         self._cache[p] = SCFsolve(fe,x0,disp)
 
-    def field_equations(self, parameters, scaled=True):
+    def field_equations(self, parameters):
         """ Accept parameters and return the corresponding field equations
             (a function that requires one argument, a 2D ndarray).
         """
-        if scaled:
-            parameters = self.unscale_parameters(parameters)
 
         chi, chi_s, pdi, sigma, phi_b, n_avg = parameters
 
@@ -390,7 +394,7 @@ class VaporSwollenSystem(BaseSystem):
         fe = self.field_equations(p)
         self._cache[p] = SCFsolve(fe,x0,disp)
 
-    def field_equations(self, parameters, scaled=True):
+    def field_equations(self, parameters):
         """ Accept parameters and return the corresponding field equations
             (a function that requires one argument, a 2D ndarray).
 
@@ -400,8 +404,6 @@ class VaporSwollenSystem(BaseSystem):
 
             parameters = x_av, x_ws, x_vw, sigma_a, phi_b_w, n_avg, pdi
         """
-        if scaled:
-            parameters = self.unscale_parameters(parameters)
 
         x_av, x_ws, x_vw, sigma_a, phi_b_w, n_avg, pdi = parameters
 
@@ -682,9 +684,7 @@ if 0:# __name__ == '__main__':
 
     vs = VaporSwollenSystem()
     param = (.1, -.15, .35, .01, .1, 75, 1)
-    param = vs.scale_parameters(param)
-    ans=SCFwalk(param, vs,1)
-    phi = vs.field_equations(param)(ans, dump_phi=1)
+    phi = vs.walk(param,1)
     import matplotlib.pyplot as plt
     plt.figure()
     plt.plot(phi.T)

@@ -13,7 +13,7 @@ from __future__ import division, print_function
 import numpy as np
 
 from util import schultz_zimm
-from scf1d import (SCFprofile, SCFsqueeze, SCFwalk, BasicSystem, VaporSwollenSystem,
+from scf1d import (SCFprofile, SCFsqueeze, BasicSystem, VaporSwollenSystem,
                    SCFsolve, SCFeqns, SCFeqns_multi, Propagator, NoConvergence)
 
 g_zs_data=np.array((
@@ -408,7 +408,7 @@ def SCFsolve_test():
          -7.19741059e-10,  -3.79408720e-10,  -1.88179452e-10,
          -8.05951811e-11,  -2.10539864e-11]])
 
-    result = SCFsolve(bs.field_equations(parameters, scaled=False),np.zeros((1,40)))
+    result = SCFsolve(bs.field_equations(parameters),np.zeros((1,40)))
 
     assert np.allclose(result, data, atol=1e-14)
 
@@ -418,7 +418,7 @@ def SCFsolve_test():
     parameters = (chi,chi_s,pdi,sigma,phi_b,navgsegments)
 
     try:
-        SCFsolve(bs.field_equations(parameters, scaled=False),np.zeros((1,40)))
+        SCFsolve(bs.field_equations(parameters),np.zeros((1,40)))
     except NoConvergence:
         pass
     else: # Belongs to try, executes if no exception is raised
@@ -435,11 +435,11 @@ def SCFsolve_test():
           2.23051957e-07,   6.90243465e-08,   2.13222654e-08,
           6.57099636e-09,   2.01620328e-09,   6.11667304e-10,
           1.78586804e-10,   4.58150217e-11]])
-    result = SCFsolve(bs.field_equations(parameters, scaled=False),data)
+    result = SCFsolve(bs.field_equations(parameters),data)
 
     assert np.allclose(result, data)#, atol=1e-14)
 
-def SCFwalk_test():
+def walk_test():
     sigma = .1
     phi_b = 0
     navgsegments = 95.5
@@ -450,7 +450,6 @@ def SCFwalk_test():
 
     BasicSystem._cache.clear()
     bs = BasicSystem()
-    sp = bs.scale_parameters(parameters)
     data = np.array([[  3.07254929e-01,   1.41259529e-01,   1.62795764e-01,
           1.68991420e-01,   1.76513700e-01,   1.83949395e-01,
           1.91169043e-01,   1.98034330e-01,   2.04468663e-01,
@@ -462,7 +461,7 @@ def SCFwalk_test():
           2.23052035e-07,   6.90242937e-08,   2.13221809e-08,
           6.57094402e-09,   2.01630121e-09,   6.11666288e-10,
           1.78584481e-10,   4.58154653e-11]])
-    result = SCFwalk(sp,bs)
+    result = bs.walk(parameters)
     assert np.allclose(result, data)
 
     # check that the cache is holding items
@@ -470,16 +469,14 @@ def SCFwalk_test():
 
     # check high pdi solutions converge without too many layers
     parameters = (.47,0,1.75,.1,.1,100)
-    sp = bs.scale_parameters(parameters)
-    result = SCFwalk(sp,bs)
+    result = bs.walk(parameters)
 
     assert result.shape <= (1,150)
 
     # check vapor swollen too
     vs = VaporSwollenSystem()
     param = (1, -1.5, 2.5, .01, .1, 75, 1)
-    param = vs.scale_parameters(param)
-    result = SCFwalk(param, vs)
+    result = vs.walk(param)
     data = np.array([[ -1.52118963e+00,  -1.38452635e+00,  -8.13458121e-01,
          -1.90503082e-01,  -2.48189020e-02,  -2.80714305e-03,
          -3.11807636e-04,  -3.46076656e-05,  -3.84715908e-06,
@@ -541,6 +538,7 @@ def SCFsqueeze_test():
          2.96354450e-04,   1.82124633e-04,   1.02535872e-04,
          4.79564181e-05,   1.33585282e-05])
     result = SCFsqueeze(chi,chi_s,pdi,sigma,phi_b,navgsegments,layers)
+
     assert np.allclose(result, data)
 
 def SCFprofile_test():
@@ -627,10 +625,10 @@ def benchmark():
     BasicSystem._cache.clear()
     start=clock()
     bs = BasicSystem()
-    p = bs.scale_parameters((0,0,1,.1,0,160.52))
-    SCFwalk(p,bs)
-    p = bs.scale_parameters((0,0,1.75,.1,0,360.52))
-    SCFwalk(p,bs)
+    p = (0,0,1,.1,0,160.52)
+    bs.walk(p)
+    p = (0,0,1.75,.1,0,360.52)
+    bs.walk(p)
     print('Benchmark time:', clock()-start, 'seconds.')
 
 
@@ -645,7 +643,7 @@ def main():
     BasicSystem_test()
     SCFsolve_test()
     SCFeqns_multi_test()
-    SCFwalk_test()
+    walk_test()
     SCFsqueeze_test()
     SCFprofile_test()
     stop=clock()
