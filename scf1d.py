@@ -169,9 +169,10 @@ def SCFsolve(field_equations, u_jz_guess, disp=False, maxiter=30):
                                          num=newlayers) for field_z in u_jz]
 
             # then sandwich the interpolated layers between the originals
+            # interpolation includes the first and last points, so shift i
             u_jz_guess = np.hstack((u_jz[:,:i-1],
                                     interpolation,
-                                    u_jz[:,i:]))
+                                    u_jz[:,i+1:]))
 
             # TODO: vectorize this interpolation and stacking?
 
