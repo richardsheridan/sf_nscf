@@ -108,87 +108,6 @@ def SCFsqueeze(chi,chi_s,pdi,sigma,phi_b,segments,layers,disp=False):
     return phi
 
 
-def SCFsolve(field_equations, u_jz_guess, disp=False, maxiter=30):
-    """Solve SCF equations using an initial guess and lattice parameters
-
-    This function finds a solution for the equations where the lattice size
-    is sufficiently large.
-
-    The Newton-Krylov solver really makes this one. With gmres, it was faster
-    than the other solvers by quite a lot.
-    """
-
-    if disp: starttime = time()
-
-    # resizing loop variables
-    jac_solve_method = 'gmres'
-    lattice_too_small = True
-
-    # We tolerate up to 1 ppm deviation from bulk
-    # when counting layers_near_bulk
-    tol = 1e-6
-
-    while lattice_too_small:
-        if disp: print("Solving SCF equations")
-
-        try:
-            u_jz = newton_krylov(field_equations,
-                                 u_jz_guess,
-                                 verbose=bool(disp),
-                                 maxiter=maxiter,
-                                 method=jac_solve_method,
-                                 )
-        except RuntimeError as e:
-            if str(e) == 'gmres is not re-entrant':
-                # Threads are racing to use gmres. Lose the race and use
-                # something slower but thread-safe.
-                jac_solve_method = 'lgmres'
-                continue
-            else:
-                raise
-
-        if disp:
-            print('lattice size:', u_jz.shape[1])
-
-        field_deviation = fabs(u_jz).sum(axis=0)
-        layers_near_bulk = field_deviation < tol
-        nbulk = layers_near_bulk.sum()
-        lattice_too_small = nbulk < MINBULK
-
-        if lattice_too_small:
-            # if there aren't enough layers_near_zero, grow the lattice 20%
-            newlayers = max(1, round((u_jz_guess.shape[1])*0.2))
-            if disp: print('Growing undersized lattice by', newlayers)
-
-            # find the layer closest to eqm with the bulk
-            i = field_deviation.argmin()
-
-            # make newlayers there via linear interpolation for each species
-            interpolation = [np.linspace(field_z[i-1],
-                                         field_z[i],
-                                         num=newlayers) for field_z in u_jz]
-
-            # then sandwich the interpolated layers between the originals
-            # interpolation includes the first and last points, so shift i
-            u_jz_guess = np.hstack((u_jz[:,:i-1],
-                                    interpolation,
-                                    u_jz[:,i+1:]))
-
-            # TODO: vectorize this interpolation and stacking?
-
-    if nbulk > 2*MINBULK:
-        chop_end = np.diff(layers_near_bulk).nonzero()[0].max()
-        chop_start = chop_end - MINBULK
-        i = np.arange(u_jz.shape[1])
-        u_jz = u_jz[:,(i <= chop_start) | (i > chop_end)]
-
-    if disp:
-        print("SCFsolve execution time:", round(time()-starttime,3), "s")
-        print('lattice size:', u_jz.shape[1])
-
-    return u_jz
-
-
 class BaseSystem(object):
     """ base class for physical system encapulators
 
@@ -455,6 +374,87 @@ class VaporSwollenSystem(BaseSystem):
                                  None, dump_phi)
 
         return wrapped_field_equations
+
+
+def SCFsolve(field_equations, u_jz_guess, disp=False, maxiter=30):
+    """Solve SCF equations using an initial guess and lattice parameters
+
+    This function finds a solution for the equations where the lattice size
+    is sufficiently large.
+
+    The Newton-Krylov solver really makes this one. With gmres, it was faster
+    than the other solvers by quite a lot.
+    """
+
+    if disp: starttime = time()
+
+    # resizing loop variables
+    jac_solve_method = 'gmres'
+    lattice_too_small = True
+
+    # We tolerate up to 1 ppm deviation from bulk
+    # when counting layers_near_bulk
+    tol = 1e-6
+
+    while lattice_too_small:
+        if disp: print("Solving SCF equations")
+
+        try:
+            u_jz = newton_krylov(field_equations,
+                                 u_jz_guess,
+                                 verbose=bool(disp),
+                                 maxiter=maxiter,
+                                 method=jac_solve_method,
+                                 )
+        except RuntimeError as e:
+            if str(e) == 'gmres is not re-entrant':
+                # Threads are racing to use gmres. Lose the race and use
+                # something slower but thread-safe.
+                jac_solve_method = 'lgmres'
+                continue
+            else:
+                raise
+
+        if disp:
+            print('lattice size:', u_jz.shape[1])
+
+        field_deviation = fabs(u_jz).sum(axis=0)
+        layers_near_bulk = field_deviation < tol
+        nbulk = layers_near_bulk.sum()
+        lattice_too_small = nbulk < MINBULK
+
+        if lattice_too_small:
+            # if there aren't enough layers_near_zero, grow the lattice 20%
+            newlayers = max(1, round((u_jz_guess.shape[1])*0.2))
+            if disp: print('Growing undersized lattice by', newlayers)
+
+            # find the layer closest to eqm with the bulk
+            i = field_deviation.argmin()
+
+            # make newlayers there via linear interpolation for each species
+            interpolation = [np.linspace(field_z[i-1],
+                                         field_z[i],
+                                         num=newlayers) for field_z in u_jz]
+
+            # then sandwich the interpolated layers between the originals
+            # interpolation includes the first and last points, so shift i
+            u_jz_guess = np.hstack((u_jz[:,:i-1],
+                                    interpolation,
+                                    u_jz[:,i+1:]))
+
+            # TODO: vectorize this interpolation and stacking?
+
+    if nbulk > 2*MINBULK:
+        chop_end = np.diff(layers_near_bulk).nonzero()[0].max()
+        chop_start = chop_end - MINBULK
+        i = np.arange(u_jz.shape[1])
+        u_jz = u_jz[:,(i <= chop_start) | (i > chop_end)]
+
+    if disp:
+        print("SCFsolve execution time:", round(time()-starttime,3), "s")
+        print('lattice size:', u_jz.shape[1])
+
+    return u_jz
 
 
 def SCFeqns_multi(u_jz, chi_jk, sigma_j, phi_b_j, n_avg_j, p_ji=None,
