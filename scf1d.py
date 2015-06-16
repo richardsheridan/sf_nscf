@@ -160,15 +160,20 @@ def SCFsolve(field_equations, u_jz_guess, disp=False, maxiter=30):
             newlayers = max(1, round((u_jz_guess.shape[1])*0.2))
             if disp: print('Growing undersized lattice by', newlayers)
 
-            # TODO: comment on inscrutable indexing and stacking
-            if nbulk:
-                i = np.diff(layers_near_bulk).nonzero()[0].max()
-            else:
-                i = field_deviation.argmin()
+            # find the layer closest to eqm with the bulk
+            i = field_deviation.argmin()
+
+            # make newlayers there via linear interpolation for each species
+            interpolation = [np.linspace(field_z[i-1],
+                                         field_z[i],
+                                         num=newlayers) for field_z in u_jz]
+
+            # then sandwich the interpolated layers between the originals
             u_jz_guess = np.hstack((u_jz[:,:i-1],
-                               [np.linspace(field_z[i-1], field_z[i], num=newlayers)
-                                for field_z in u_jz], # XXX: vectorize?
-                               u_jz[:,i:]))
+                                    interpolation,
+                                    u_jz[:,i:]))
+
+            # TODO: vectorize this interpolation and stacking?
 
     if nbulk > 2*MINBULK:
         chop_end = np.diff(layers_near_bulk).nonzero()[0].max()
@@ -299,11 +304,13 @@ class BaseSystem(object):
                 p_tup = scaled_parameters
 
             up_tup = self.unscale_parameters(p_tup)
+
             if disp:
                 print('Parameter step is', step)
                 print('current parameters:', up_tup)
 
             fe = self.field_equations(up_tup)
+
             try:
                 u = SCFsolve(fe, u, disp)
             except (NoConvergence, ValueError) as e:

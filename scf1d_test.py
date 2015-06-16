@@ -410,7 +410,7 @@ def SCFsolve_test():
 
     result = SCFsolve(bs.field_equations(parameters),np.zeros((1,40)))
 
-    assert np.allclose(result, data, atol=1e-14)
+    assert np.allclose(result, data)
 
     # try a very hard one using the answer as an initial guess
     chi = 1
