@@ -425,7 +425,8 @@ def SCFsolve(field_equations, u_jz_guess, disp=False, maxiter=30):
 
         if lattice_too_small:
             # if there aren't enough layers_near_zero, grow the lattice 20%
-            newlayers = max(1, round((u_jz_guess.shape[1])*0.2))
+            newlayers = max(1, round((u_jz_guess.shape[1])*0.2)) + 2
+
             if disp: print('Growing undersized lattice by', newlayers)
 
             # find the layer closest to eqm with the bulk
