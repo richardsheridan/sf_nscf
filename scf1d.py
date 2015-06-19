@@ -583,7 +583,7 @@ def SCFeqns(u_z, chi, chi_s, sigma, n_avg, p_i, phi_b=0, dump_phi=False):
 def calc_phi_z(g_z, n_avg, sigma, phi_b, u_z_avg=0, p_i=None):
 
     if p_i is None:
-        segments = n_avg
+        segments = round(n_avg)
         uniform = 1
     else:
         segments = p_i.size
