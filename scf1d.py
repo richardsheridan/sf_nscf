@@ -559,6 +559,13 @@ def SCFeqns(u_z, chi, chi_s, sigma, n_avg, p_i, phi_b=0, dump_phi=False):
     if dump_phi:
         return phi_z
 
+#    # Change in entropy from reference state per unit area (S-S*)/kL (4.2.69)
+#    s = -((1-phi_z)*log(1-phi_z)+phi_z*(log(c*n_avg)/n_avg+u_z)).sum()
+#    print('s:',s)
+#    # excess polymer
+#    theta_z = phi_z - sigma*n_avg
+
+
     # penalize attempts that overfill the lattice
     toomuch = phi_z>.99999
     penalty_flag = toomuch.any()
@@ -568,8 +575,20 @@ def SCFeqns(u_z, chi, chi_s, sigma, n_avg, p_i, phi_b=0, dump_phi=False):
 
     # calculate new potentials
     u_prime = log((1.0 - phi_z)/(1.0 - phi_b))
-    u_int = 2*chi*(correlate(phi_z, LAMBDA_ARRAY, 1)-phi_b)
+    phi_z_avg = correlate(phi_z, LAMBDA_ARRAY, 1)
+    u_int = 2*chi*(phi_z_avg-phi_b)
     u_int[0] += chi_s
+
+#    # change in Free Energy (A-A*)/kTL (4.2.70)
+#    a = -s + np.sum((1-phi_z)*chi*phi_z_avg) + chi_s
+#    print('a:',a)
+#    # surface tension gamma/kT (4.2.72)
+#
+#    # surface tension difference from solvent (4.2.75)
+#    dgamma = (1-1/n_avg)*(theta_z)+np.sum(-u_prime)+chi*(np.sum(
+#        phi_z*phi_z_avg)-phi_b**2)
+#    print('dgamma:',dgamma)
+
     u_z_new = u_prime + u_int
 
     eps_z = u_z - u_z_new
@@ -605,6 +624,7 @@ def calc_phi_z(g_z, n_avg, sigma, phi_b, u_z_avg=0, p_i=None):
         phi_z_ta = compose(g_zs_ta, g_zs_ta_ngts, g_z)
     else:
         phi_z_ta = 0
+        c_i_ta = 0
 
     # for free chains
     if phi_b:
@@ -612,10 +632,10 @@ def calc_phi_z(g_z, n_avg, sigma, phi_b, u_z_avg=0, p_i=None):
 
         if uniform:
             r_i = segments
-            c_free = phi_b/r_i
+            c_i_free = phi_b/r_i
             normalizer = exp(u_z_avg*r_i)
-            c_free = c_free*normalizer
-            g_zs_free_ngts = g_zs.ngts_u(c_free)
+            c_i_free = c_i_free*normalizer
+            g_zs_free_ngts = g_zs.ngts_u(c_i_free)
         else:
             r_i = np.arange(1, segments+1)
             c_i_free = phi_b*p_i/r_i
@@ -626,8 +646,9 @@ def calc_phi_z(g_z, n_avg, sigma, phi_b, u_z_avg=0, p_i=None):
         phi_z_free = compose(g_zs_free, g_zs_free_ngts, g_z)
     else:
         phi_z_free = 0
+        c_i_free = 0
 
-    return phi_z_ta + phi_z_free
+    return phi_z_ta + phi_z_free#, c_i_ta
 
 
 class Propagator():
