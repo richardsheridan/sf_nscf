@@ -5,7 +5,12 @@ Created on Fri May 22 15:29:38 2015
 @author: Richard Sheridan
 """
 import numpy as np
-from util import schultz_zimm, sumkd, meankd
+from util import schultz_zimm, sumkd, meankd, lattice_parameters
+
+def lattice_parameters_test():
+    result = lattice_parameters(.0282, 104, .25, 2.33333333333333)
+    data = 1.4177993142857144, 589.8045147428572
+    assert np.allclose(result, data)
 
 def sumkd_test():
     result = sumkd(np.arange(4,dtype=float).reshape(2,2))
