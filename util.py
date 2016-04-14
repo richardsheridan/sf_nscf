@@ -39,7 +39,7 @@ def lattice_parameters(a, m, l, p_l):
         and a is the ratio between molecular weight and radius of gyration at
         theta conditions. The lattice persistence, p_l, is:
 
-        p_l = 1/6 * (1+1/Z)(1-1/Z)
+        p_l = 1/6 * (1+1/Z)/(1-1/Z)
 
         with coordination number Z = 6 for a cubic lattice, p_l = .233.
     '''
