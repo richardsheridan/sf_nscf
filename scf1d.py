@@ -161,10 +161,10 @@ class BaseSystem(object):
 
     def from_cache(self, key):
         self._cache.move_to_end(key)
-        return self._cache[key]
+        return self._cache[key].copy()
 
     def add_to_cache(self, key, value):
-        self._cache[key] = value
+        self._cache[key] = value.copy()
         if len(self._cache) > self._cache_limit:
             self._cache.popitem(last=False)
 
