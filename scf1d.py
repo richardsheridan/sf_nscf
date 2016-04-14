@@ -192,7 +192,10 @@ class BaseSystem(object):
             self.parameters = unscaled_parameters
             return self.from_cache(scaled_parameters)
 
-        # Find the closest parameters in the cache: O(len(cache))
+        # Find the closest parameters in the cache
+
+
+        # Exhaustive search: O(len(cache))
 
         # Numpy setup
         cached_parameters = self.cached_parameters()
@@ -207,6 +210,31 @@ class BaseSystem(object):
         closest_cp = cached_parameters[closest_index]
         closest_cp_array = cp_array[closest_index]
         closest_delta = deltas[closest_index]
+
+
+        # Sparse search: O(sqrt(len(cache)))
+        # sometimes this does not find a good-enough guess
+
+#        # Initialize loop variables
+#        closest_distance = np.inf
+#        p_array = np.array(scaled_parameters)
+#        limit = np.sqrt(len(self._cache)+1)+4
+#
+#        # Iterate "randomly" (arbitrarily) over cache and calc distances
+#        # Break out when we've hit the limit and take the best so far
+#        for i, cp in enumerate(dict.__iter__(self._cache)):
+#            delta = p_array-np.array(cp)
+#            distance = np.sum(delta*delta)
+#
+#            if distance < closest_distance:
+#                closest_distance = distance
+#                closest_cp = cp
+#                closest_delta = delta
+#
+#            if i > limit:
+#                break
+#
+#        closest_cp_array = np.array(cp)
 
         u = self.from_cache(closest_cp)
 
