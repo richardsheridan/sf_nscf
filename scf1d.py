@@ -111,11 +111,30 @@ def SCFsqueeze(chi,chi_s,pdi,sigma,phi_b,segments,layers,disp=False):
 class BaseSystem(object):
     """ base class for physical system encapulators
 
-        should produce wrapped field equations from a parameters tuple
-        should cache every valid field equation solution across all instances
-        should have methods for managing the cache without exposing it
+        produces wrapped field equations from a parameters tuple
+        caches every valid field equation solution across all instances
+        manages the cache without exposing it
+        don't let strangers mutate cached potentials
         manages scaling of parameters for the cache so the user never
-        sees scaled parameters
+            sees scaled parameters
+
+        walk api works quasi-functionally, takes parameters, returns u:
+
+        >>> s = System()
+        >>> u = s.walk((1,2,3,4,5))
+
+        but needs crappy syntax to get phi out
+
+        >>> phi = s.field_equations(parameters)(u,1).squeeze()
+
+        properties api hides this stuff, and has lazy evaluation
+
+        >>> s.parameters
+        (1,2,3,4,5)
+        >>> s.parameters = 2,2,2,2,2
+        >>> phi = s.density
+        >>> u = s.potential
+
     """
 
     _cache = NotImplementedAttribute # equivalent of NotImplementedError
@@ -124,9 +143,12 @@ class BaseSystem(object):
     _scale = NotImplementedAttribute
     _offset = NotImplementedAttribute
 
+    parameters = None
+
     def __init__(self, disp=False):
         if not self._cache:
             self._prime_cache(disp)
+        self.parameters = self.unscale_parameters(next(iter(self._cache)))
 
     def _prime_cache(self):
         raise NotImplementedError
@@ -167,6 +189,7 @@ class BaseSystem(object):
         # longshot, but return a cached result if we hit it
         if self.in_cache(scaled_parameters):
             if disp: print('cache hit at:', unscaled_parameters)
+            self.parameters = unscaled_parameters
             return self.from_cache(scaled_parameters)
 
         # Find the closest parameters in the cache: O(len(cache))
@@ -250,7 +273,18 @@ class BaseSystem(object):
 
         if disp: print('walk execution time:', round(time()-starttime,3), "s")
 
+        self.parameters = up_tup
         return u
+
+    @property
+    def potential(self):
+        return self.walk(self.parameters)
+
+    @property
+    def density(self):
+        u = self.potential
+        fe = self.field_equations(self.parameters)
+        return fe(u,1).squeeze()
 
 
 class BasicSystem(BaseSystem):
