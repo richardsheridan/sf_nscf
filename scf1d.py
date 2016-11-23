@@ -61,7 +61,7 @@ def SCFprofile(z, chi=None, chi_s=None, h_dry=None, l_lat=1, mn=None,
     bs = BasicSystem()
     parameters = (chi,chi_s,pdi,sigma,phi_b,segments)
     u = bs.walk(parameters,disp)
-    phi_lat = bs.field_equations(parameters)(u, 1).squeeze()
+    phi_lat = bs.density
     if disp: print("\n============================\n")
 
     # Chop edge effects out
