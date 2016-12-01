@@ -33,7 +33,7 @@ MINLAT = 25
 MINBULK = 5
 
 def lattice_parameters(a, m, l, p_l):
-    '''
+    """
 
         l is the real polymer's bond length, m is the real segment mass,
         and a is the ratio between molecular weight and radius of gyration at
@@ -42,19 +42,23 @@ def lattice_parameters(a, m, l, p_l):
         p_l = 1/6 * (1+1/Z)/(1-1/Z)
 
         with coordination number Z = 6 for a cubic lattice, p_l = .233.
-    '''
 
-    if not 0.001 < a < .1:
+        >>> a, m, l, p_l = .003, 104, 0.025, .2333333 # Ang, amu, ang, --
+        >>> lattice_parameters(a, m, l, p_l)
+        (1.6045716577959512, 667.5018096431157)
+    """
+
+    if not 0.001 < a < 1:
         raise ValueError('polymer size parameter a out of spec at:', a)
     if not 30 < m < 300:
         raise ValueError('monomer weight m out of spec at:', m)
-    if not 0 < l < 10:
+    if not 0 < l < 100:
         raise ValueError('monomer length l out of spec at:', l)
-    if not 0 < l < 1:
+    if not 0 < p_l < 1:
         raise ValueError('lattice persistence p_l out of spec at:', l)
 
-    l_lat = a**2 * m * l / p_l
-    m_lat = (a * m * l)**2 / p_l
+    l_lat = a**2 * m / l / p_l
+    m_lat = (a * m / l)**2 / p_l
     return l_lat, m_lat
 
 @property
