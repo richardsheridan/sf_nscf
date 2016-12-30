@@ -137,11 +137,11 @@ class BaseSystem(object):
 
     """
 
-    _cache = NotImplementedAttribute # equivalent of NotImplementedError
+    _cache = NotImplementedAttribute() # equivalent of NotImplementedError
     _cache_limit = 100
 
-    _scale = NotImplementedAttribute
-    _offset = NotImplementedAttribute
+    _scale = NotImplementedAttribute()
+    _offset = NotImplementedAttribute()
 
     parameters = None
 

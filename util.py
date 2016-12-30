@@ -61,9 +61,11 @@ def lattice_parameters(a, m, l, p_l):
     m_lat = (a * m / l)**2 / p_l
     return l_lat, m_lat
 
-@property
-def NotImplementedAttribute(self):
-    raise NotImplementedError
+class NotImplementedAttribute:
+    """http://stackoverflow.com/a/32536493/4504950"""
+
+    def __get__(self, obj, type):
+        raise NotImplementedError("This attribute must be set")
 
 _sz_dict = OrderedDict()
 def schultz_zimm(pdi,nn,cache=_sz_dict):
