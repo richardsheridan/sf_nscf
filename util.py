@@ -132,6 +132,54 @@ def sumkd(array, axis=None):
 def meankd(array, axis=None):
     return np.mean(array, axis=axis, keepdims=True)
 
+
+class Propagator:
+
+    def __init__(self, g_z, segments):
+        self.g_z = g_z
+        self.shape = g_z.size, segments
+
+    def ta(self):
+        # terminally attached beginnings
+        # forward propagator
+
+        g_zs = self._new()
+        g_zs[:, 0] = 0.0
+        g_zs[0, 0] = self.g_z[0]
+        _calc_g_zs_uniform(self.g_z, g_zs)
+        return g_zs
+
+    def free(self):
+        # free beginnings
+        # forward propagator
+
+        g_zs = self._new()
+        g_zs[:, 0] = self.g_z
+        _calc_g_zs_uniform(self.g_z, g_zs)
+        return g_zs
+
+    def ngts_u(self, c):
+        # free ends of uniform chains
+        # reverse propagator
+
+        g_zs = self._new()
+        g_zs[:, 0] = c * self.g_z
+        _calc_g_zs_uniform(self.g_z, g_zs)
+        return g_zs
+
+    def ngts(self, c_i):
+        # free ends of disperse chains
+        # reverse propagator
+
+        g_zs = self._new()
+        g_zs[:, 0] = c_i[-1] * self.g_z
+        _calc_g_zs(self.g_z, c_i, g_zs)
+        return g_zs
+
+    def _new(self):
+        return np.empty(self.shape, order='F')
+
+
 """ BEGIN IMPORT-TIME SHENANIGANS """
 
 # compatability for systems lacking compiler capability

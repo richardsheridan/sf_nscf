@@ -12,9 +12,9 @@ haven't changed since that version.
 from __future__ import division, print_function
 import numpy as np
 
-from util import schultz_zimm
+from util import schultz_zimm, Propagator
 from scf1d import (SCFprofile, SCFsqueeze, BasicSystem, VaporSwollenSystem,
-                   SCFsolve, SCFeqns, SCFeqns_multi, Propagator, NoConvergence)
+                   SCFsolve, SCFeqns, SCFeqns_multi, NoConvergence)
 
 g_zs_data=np.array((
    ( 0.90000000,  0.67833333,  0.53457407,  0.43538321,  0.36346252,

@@ -22,15 +22,15 @@ Profile\ [#Cosgrove]_\ [#deVos]_\ [#Sheridan]_
     of "surface theta" conditions. [in prep]
 """
 
-from util import (schultz_zimm, sumkd, meankd, MINLAT, MINBULK, NotImplementedAttribute,
-                LAMBDA_1, LAMBDA_ARRAY, correlate, _calc_g_zs,
-                _calc_g_zs_uniform, compose, fastsum)
 
 import numpy as np
 from time import time
 from collections import OrderedDict
 from numpy import exp, log, fabs
 from scipy.optimize.nonlin import newton_krylov, NoConvergence
+
+from util import (schultz_zimm, sumkd, meankd, MINLAT, MINBULK, NotImplementedAttribute,
+                  LAMBDA_1, LAMBDA_ARRAY, correlate, compose, fastsum, Propagator)
 
 
 def SCFprofile(z, chi=None, chi_s=None, h_dry=None, l_lat=1, mn=None,
@@ -711,53 +711,6 @@ def calc_phi_z(g_z, n_avg, sigma, phi_b, u_z_avg=0, p_i=None):
         c_i_free = 0
 
     return phi_z_ta + phi_z_free#, c_i_ta
-
-
-class Propagator():
-
-    def __init__(self, g_z, segments):
-        self.g_z = g_z
-        self.shape = g_z.size, segments
-
-    def ta(self):
-        # terminally attached beginings
-        # forward propagator
-
-        g_zs = self._new()
-        g_zs[:, 0] = 0.0
-        g_zs[0, 0] = self.g_z[0]
-        _calc_g_zs_uniform(self.g_z, g_zs)
-        return g_zs
-
-    def free(self):
-        # free beginnings
-        # forward propagator
-
-        g_zs = self._new()
-        g_zs[:, 0] = self.g_z
-        _calc_g_zs_uniform(self.g_z, g_zs)
-        return g_zs
-
-    def ngts_u(self, c):
-        # free ends of uniform chains
-        # reverse propagator
-
-        g_zs = self._new()
-        g_zs[:, 0] = c * self.g_z
-        _calc_g_zs_uniform(self.g_z, g_zs)
-        return g_zs
-
-    def ngts(self, c_i):
-        # free ends of disperse chains
-        # reverse propagator
-
-        g_zs = self._new()
-        g_zs[:, 0] = c_i[-1] * self.g_z
-        _calc_g_zs(self.g_z, c_i, g_zs)
-        return g_zs
-
-    def _new(self):
-        return np.empty(self.shape, order='F')
 
 
 if 0:# __name__ == '__main__':
