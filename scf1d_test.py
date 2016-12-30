@@ -639,20 +639,20 @@ def SCFprofile_test():
 
 
 def benchmark():
-    from time import clock
+    from time import perf_counter
     BasicSystem._cache.clear()
-    start=clock()
+    start=perf_counter()
     bs = BasicSystem()
     p = (0,0,1,.1,0,160.52)
     bs.walk(p)
     p = (0,0,1.75,.1,0,360.52)
     bs.walk(p)
-    print('Benchmark time:', clock()-start, 'seconds.')
+    print('Benchmark time:', perf_counter()-start, 'seconds.')
 
 
 def main():
-    from time import clock
-    start=clock()
+    from time import perf_counter
+    start=perf_counter()
     calc_g_zs_ta_test()
     calc_g_zs_free_test()
     calc_g_zs_ngts_u_test()
@@ -665,7 +665,7 @@ def main():
     walk_test()
     SCFsqueeze_test()
     SCFprofile_test()
-    stop=clock()
+    stop=perf_counter()
     print('All tests passed in {:.3g} seconds!'.format(stop-start))
     benchmark()
 

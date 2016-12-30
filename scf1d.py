@@ -22,10 +22,10 @@ Profile\ [#Cosgrove]_\ [#deVos]_\ [#Sheridan]_
     of "surface theta" conditions. [in prep]
 """
 
+from collections import OrderedDict
+from time import perf_counter
 
 import numpy as np
-from time import time
-from collections import OrderedDict
 from numpy import exp, log, fabs
 from scipy.optimize.nonlin import newton_krylov, NoConvergence
 
@@ -58,9 +58,8 @@ def SCFprofile(z, chi=None, chi_s=None, h_dry=None, l_lat=1, mn=None,
 
     # solve the self consistent field equations using the cache
     if disp: print("\n=====Begin calculations=====\n")
-    bs = BasicSystem()
-    parameters = (chi,chi_s,pdi,sigma,phi_b,segments)
-    u = bs.walk(parameters,disp)
+    bs = BasicSystem(disp)
+    bs.parameters = (chi,chi_s,pdi,sigma,phi_b,segments)
     phi_lat = bs.density
     if disp: print("\n============================\n")
 
@@ -146,6 +145,7 @@ class BaseSystem(object):
     parameters = None
 
     def __init__(self, disp=False):
+        self.disp = disp
         if not self._cache:
             self._prime_cache(disp)
         self.parameters = self.unscale_parameters(next(iter(self._cache)))
@@ -177,12 +177,15 @@ class BaseSystem(object):
     def unscale_parameters(self, param):
         return tuple(p/s+o for p,s,o in zip(param, self._scale, self._offset))
 
-    def walk(self, unscaled_parameters, disp=False):
+    def walk(self, unscaled_parameters, disp=None):
         """Return a memoized SCF result by walking from a previous solution.
 
         """
 
-        if disp: starttime = time()
+        if disp is None:
+            disp = self.disp
+        if disp:
+            starttime = perf_counter()
 
         scaled_parameters = self.scale_parameters(unscaled_parameters)
 
@@ -299,7 +302,7 @@ class BaseSystem(object):
                 dstep *= 1.05
                 step += dstep
 
-        if disp: print('walk execution time:', round(time()-starttime,3), "s")
+        if disp: print('walk execution time:', round(perf_counter() - starttime, 3), "s")
 
         self.parameters = up_tup
         return u
@@ -448,7 +451,7 @@ def SCFsolve(field_equations, u_jz_guess, disp=False, maxiter=30):
     than the other solvers by quite a lot.
     """
 
-    if disp: starttime = time()
+    if disp: starttime = perf_counter()
 
     # resizing loop variables
     jac_solve_method = 'gmres'
@@ -514,7 +517,7 @@ def SCFsolve(field_equations, u_jz_guess, disp=False, maxiter=30):
         u_jz = u_jz[:,(i <= chop_start) | (i > chop_end)]
 
     if disp:
-        print("SCFsolve execution time:", round(time()-starttime,3), "s")
+        print("SCFsolve execution time:", round(perf_counter() - starttime, 3), "s")
         print('lattice size:', u_jz.shape[1])
 
     return u_jz
