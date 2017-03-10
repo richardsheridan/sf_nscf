@@ -115,7 +115,7 @@ def schultz_zimm(pdi,nn,cache=_sz_dict):
 
     if uniform or pdi_underflow:
         # NOTE: rounding here allows nn to be a double in the rest of the logic
-        p_ni = np.zeros(round(nn))
+        p_ni = np.zeros(int(round(nn)))
         p_ni[-1] = 1.0
     else:
         p_ni = np.concatenate(p_ni_list)
